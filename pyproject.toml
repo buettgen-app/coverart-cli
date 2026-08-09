@@ -32,11 +32,11 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "build==1.5.1",
-    "pyrefly==1.1.1",
+    "pyrefly==1.2.0",
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
-    "ruff==0.15.21",
-    "zizmor==1.26.1",
+    "ruff==0.16.1",
+    "zizmor==1.29.0",
 ]
 
 [project.scripts]
