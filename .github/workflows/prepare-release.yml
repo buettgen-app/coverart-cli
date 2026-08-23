@@ -31,10 +31,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.release.outputs.tag_name }}
           RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          RELEASE_RUN_ID: ${{ github.run_id }}
         run: |
           jq -n \
             --arg event_type release-published \
             --arg tag "$RELEASE_TAG" \
             --arg sha "$RELEASE_SHA" \
-            '{event_type: $event_type, client_payload: {tag: $tag, sha: $sha}}' |
+            --arg run_id "$RELEASE_RUN_ID" \
+            '{event_type: $event_type, client_payload: {tag: $tag, sha: $sha, run_id: $run_id}}' |
             gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" --input -
