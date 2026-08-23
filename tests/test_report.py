@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from mutagen.id3 import APIC, ID3
+
 from coverart_cli.report import (
     MAX_THUMB_BYTES,
     AlbumEntry,
@@ -92,6 +94,29 @@ def test_scan_library_missing_cover(tmp_path: Path) -> None:
     assert entries[0].has_cover is False
     assert entries[0].source == "none"
     assert entries[0].cover_data_uri is None
+
+
+def test_scan_library_checks_every_track_for_embedded_cover(tmp_path: Path) -> None:
+    album = tmp_path / "Some Artist" / "Some Album"
+    album.mkdir(parents=True)
+    for index in range(1, 5):
+        tags = ID3()
+        if index == 4:
+            tags.add(
+                APIC(
+                    encoding=3,
+                    mime="image/jpeg",
+                    type=3,
+                    desc="Cover",
+                    data=b"\xff\xd8\xff" + b"x" * 3000,
+                )
+            )
+        tags.save(album / f"{index:02d}.mp3")
+
+    entries = scan_library(tmp_path, embed_thumbs=False)
+
+    assert len(entries) == 1
+    assert entries[0].has_cover is True
 
 
 def test_build_report_substitutes_data(tmp_path: Path) -> None:

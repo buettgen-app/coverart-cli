@@ -111,6 +111,27 @@ def test_existing_sidecar_fills_missing_embeds_without_network(tmp_path: Path) -
         assert any(k.startswith("APIC") for k in ID3(track))
 
 
+def test_embed_only_reuses_existing_sidecar_without_network(tmp_path: Path) -> None:
+    album_dir = _make_album(tmp_path, "Pink Floyd", "The Wall")
+    local_cover = b"\xff\xd8\xff" + b"x" * 4000
+    (album_dir / "cover.jpg").write_bytes(local_cover)
+    provider = FakeProvider()
+
+    stats = run(
+        RunOptions(
+            root=tmp_path,
+            providers=[provider],
+            do_sidecar=False,
+        )
+    )
+
+    assert provider.calls == []
+    assert stats.files_embedded == 2
+    for track in album_dir.glob("*.mp3"):
+        pictures = [frame for frame in ID3(track).values() if isinstance(frame, APIC)]
+        assert [cast(Any, picture).data for picture in pictures] == [local_cover]
+
+
 def test_atomic_sidecar_write_replaces_symlink_without_touching_target(tmp_path: Path) -> None:
     library = tmp_path / "library"
     album_dir = _make_album(library, "Pink Floyd", "The Wall")

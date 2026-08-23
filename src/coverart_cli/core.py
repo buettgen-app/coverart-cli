@@ -125,6 +125,9 @@ def process_album(
     existing_sidecar = (
         find_sidecar(album_dir, min_bytes=sidecar_threshold) if opts.do_sidecar else None
     )
+    reusable_sidecar = existing_sidecar
+    if reusable_sidecar is None and opts.do_embed and not opts.do_sidecar:
+        reusable_sidecar = find_sidecar(album_dir)
     current_sidecar = None
     if opts.do_sidecar:
         current_sidecar = existing_sidecar or find_sidecar(album_dir, min_bytes=-1)
@@ -154,16 +157,16 @@ def process_album(
 
     result: ProviderResult | None = None
     used_sidecar = False
-    if existing_sidecar is not None and not embeds_complete:
+    if reusable_sidecar is not None and not embeds_complete:
         try:
             result = ProviderResult(
-                image_bytes=existing_sidecar.read_bytes(),
+                image_bytes=reusable_sidecar.read_bytes(),
                 source="sidecar",
-                image_url=str(existing_sidecar),
+                image_url=str(reusable_sidecar),
             )
             used_sidecar = True
         except OSError as e:
-            log.warning("cannot reuse sidecar %s: %s", existing_sidecar, e)
+            log.warning("cannot reuse sidecar %s: %s", reusable_sidecar, e)
 
     if result is None:
         for provider in opts.providers:
