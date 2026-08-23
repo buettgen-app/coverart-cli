@@ -15,6 +15,7 @@ on:
         type: string
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -24,6 +25,7 @@ concurrency:
 env:
   RELEASE_TAG: ${{ github.event.release.tag_name || github.event.client_payload.tag || github.event.inputs.tag }}
   RELEASE_SHA: ${{ github.event.client_payload.sha || '' }}
+  RELEASE_RUN_ID: ${{ github.event.client_payload.run_id || '' }}
 
 jobs:
   validate:
@@ -37,8 +39,25 @@ jobs:
             echo "::error::Publication dispatch must come from GitHub Actions."
             exit 1
           fi
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::Publication dispatch must include a stable tag and full release SHA."
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+             [[ ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] ||
+             [[ ! "$RELEASE_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::Publication dispatch must include a stable tag, full release SHA, and source run ID."
+            exit 1
+          fi
+      - name: Verify publication source workflow
+        if: github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          source_run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_RUN_ID")"
+          if ! jq -e \
+            --arg sha "$RELEASE_SHA" \
+            '.path == ".github/workflows/prepare-release.yml" and
+             (.event == "push" or .event == "workflow_dispatch") and
+             .head_branch == "main" and
+             .head_sha == $sha' <<<"$source_run" >/dev/null; then
+            echo "::error::Publication dispatch is not bound to the expected prepare-release run."
             exit 1
           fi
       - name: Restrict recovery runs to main
