@@ -28,7 +28,7 @@ jobs:
         id: metadata
         uses: dependabot/fetch-metadata@d7267f607e9d3fb96fc2fbe83e0af444713e90b7 # v3
 
-      - name: Enable squash auto-merge for low-risk updates
+      - name: Enable rebase auto-merge for low-risk updates
         if: >-
           steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
           (
@@ -41,4 +41,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
-        run: gh pr merge --auto --squash "$PR_URL"
+        run: gh pr merge --auto --rebase "$PR_URL"
