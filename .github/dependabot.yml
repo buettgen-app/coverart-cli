@@ -4,21 +4,40 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "04:00"
+      timezone: "Europe/Berlin"
+    rebase-strategy: "auto"
+    commit-message:
+      prefix: "chore(deps)"
+    cooldown:
+      default-days: 7
     labels:
       - "dependencies"
       - "github-actions"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     groups:
-      gh-actions:
+      github-actions-nonmajor:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "04:30"
+      timezone: "Europe/Berlin"
+    rebase-strategy: "auto"
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    cooldown:
+      default-days: 7
     labels:
       - "dependencies"
       - "python"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     groups:
-      python-deps:
+      python-nonmajor:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
