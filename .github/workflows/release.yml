@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing published release tag to recover, for example v1.2.3
+        description: Existing release tag to recover, including a draft, for example v1.2.3
         required: true
         type: string
 
@@ -24,7 +24,6 @@ env:
   RELEASE_TAG: ${{ github.event.client_payload.tag || github.event.inputs.tag }}
   RELEASE_SHA: ${{ github.event.client_payload.sha || '' }}
   RELEASE_RUN_ID: ${{ github.event.client_payload.run_id || '' }}
-  RELEASE_REF: ${{ github.event.client_payload.sha || github.event.inputs.tag }}
 
 jobs:
   validate:
@@ -36,6 +35,7 @@ jobs:
     outputs:
       release_id: ${{ steps.release.outputs.id }}
       draft: ${{ steps.release.outputs.draft }}
+      release_ref: ${{ steps.release.outputs.ref }}
     steps:
       - name: Validate internal publication dispatch
         if: github.event_name == 'repository_dispatch'
@@ -77,25 +77,64 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          release="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")"
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tag must be a stable semantic version such as v1.2.3."
+            exit 1
+          fi
+
+          release="$(
+            gh release view "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json databaseId,isDraft,isImmutable,tagName,targetCommitish \
+              --jq '{
+                id: .databaseId,
+                draft: .isDraft,
+                immutable: .isImmutable,
+                tag_name: .tagName,
+                target_commitish: .targetCommitish
+              }'
+          )"
           draft="$(jq -r .draft <<<"$release")"
-          immutable="$(jq -r '.immutable // false' <<<"$release")"
+          immutable="$(jq -r .immutable <<<"$release")"
+          target_commitish="$(jq -r .target_commitish <<<"$release")"
+
+          if [ "$(jq -r .tag_name <<<"$release")" != "$RELEASE_TAG" ]; then
+            echo "::error::Resolved release tag does not match $RELEASE_TAG."
+            exit 1
+          fi
 
           if [ "$GITHUB_EVENT_NAME" = "repository_dispatch" ]; then
             if [ "$draft" != "true" ] || [ "$immutable" != "false" ]; then
               echo "::error::$RELEASE_TAG must be a mutable draft before verified publication."
               exit 1
             fi
-          elif [ "$draft" != "false" ]; then
-            echo "::error::Manual recovery requires an existing published release."
+            if [ "$target_commitish" != "$RELEASE_SHA" ]; then
+              echo "::error::$RELEASE_TAG does not target the dispatched release SHA."
+              exit 1
+            fi
+            release_ref="$RELEASE_SHA"
+          elif [ "$draft" = "true" ]; then
+            if [ "$immutable" != "false" ] ||
+               [[ ! "$target_commitish" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::Draft recovery requires a mutable release targeting a full commit SHA."
+              exit 1
+            fi
+            release_ref="$target_commitish"
+          else
+            release_ref="$RELEASE_TAG"
+          fi
+
+          if [ -z "$release_ref" ]; then
+            echo "::error::Release source ref could not be resolved."
             exit 1
           fi
 
           echo "id=$(jq -r .id <<<"$release")" >> "$GITHUB_OUTPUT"
           echo "draft=$draft" >> "$GITHUB_OUTPUT"
+          echo "ref=$release_ref" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.RELEASE_REF }}
+          ref: ${{ steps.release.outputs.ref }}
           fetch-depth: 0
           persist-credentials: false
       - name: Verify dispatched release commit
@@ -152,7 +191,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.RELEASE_REF }}
+          ref: ${{ needs.validate.outputs.release_ref }}
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -174,7 +213,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.RELEASE_REF }}
+          ref: ${{ needs.validate.outputs.release_ref }}
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
