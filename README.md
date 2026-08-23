@@ -3,12 +3,12 @@
 > Fill the missing covers in your music library — embed and sidecar in one pass.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/WildDragonKing/coverart-cli/main/docs/screenshots/report-dark.png" alt="HTML coverage report" width="100%" />
+  <img src="https://raw.githubusercontent.com/buettgen-app/coverart-cli/main/docs/screenshots/report-dark.png" alt="HTML coverage report" width="100%" />
 </p>
 
-[![CI](https://github.com/WildDragonKing/coverart-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/WildDragonKing/coverart-cli/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/WildDragonKing/coverart-cli/actions/workflows/codeql.yml/badge.svg)](https://github.com/WildDragonKing/coverart-cli/actions/workflows/codeql.yml)
-[![CodeRabbit reviews](https://img.shields.io/coderabbit/prs/github/WildDragonKing/coverart-cli?labelColor=171717&color=FF570A&label=CodeRabbit+reviews)](https://coderabbit.ai)
+[![CI](https://github.com/buettgen-app/coverart-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/buettgen-app/coverart-cli/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/buettgen-app/coverart-cli/actions/workflows/codeql.yml/badge.svg)](https://github.com/buettgen-app/coverart-cli/actions/workflows/codeql.yml)
+[![CodeRabbit reviews](https://img.shields.io/coderabbit/prs/github/buettgen-app/coverart-cli?labelColor=171717&color=FF570A&label=CodeRabbit+reviews)](https://coderabbit.ai)
 [![PyPI](https://img.shields.io/pypi/v/coverart-cli.svg?color=blue)](https://pypi.org/project/coverart-cli/)
 [![PyPI downloads](https://static.pepy.tech/badge/coverart-cli/month)](https://pypi.org/project/coverart-cli/)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org)
@@ -101,7 +101,7 @@ print(stats.fetched_from, stats.not_found)
 ## Development
 
 ```bash
-git clone https://github.com/WildDragonKing/coverart-cli && cd coverart-cli
+git clone https://github.com/buettgen-app/coverart-cli && cd coverart-cli
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 ruff check . && pyrefly check && pytest
@@ -135,8 +135,8 @@ Configure a repository-scoped GitHub App with `Contents: read and write` and
 `RELEASE_APP_PRIVATE_KEY`. The repository-wide setting that lets
 `GITHUB_TOKEN` create or approve pull requests can remain disabled.
 
-The PyPI Trusted Publisher must be restricted to this repository, the
-`release.yml` workflow, and the `pypi` environment. That filename is the stable
+The PyPI Trusted Publisher must be configured for GitHub owner `buettgen-app`,
+repository `coverart-cli`, workflow `release.yml`, and environment `pypi`. That filename is the stable
 publish identity even though Release Please itself runs in
 `prepare-release.yml`. Do not create release tags or upload distributions by
 hand. A failed publish can be rerun from the same GitHub Actions run without

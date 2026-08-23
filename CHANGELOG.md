@@ -5,37 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.3](https://github.com/WildDragonKing/coverart-cli/compare/v0.4.1...v0.4.3) (2026-07-13)
+## [0.4.3](https://github.com/buettgen-app/coverart-cli/compare/v0.4.1...v0.4.3) (2026-07-13)
 
 
 ### Bug Fixes
 
-* **ci:** add guarded release recovery ([#31](https://github.com/WildDragonKing/coverart-cli/pull/31)) ([151ec6f](https://github.com/WildDragonKing/coverart-cli/commit/151ec6f))
-* **ci:** harden and separate release publishing ([#30](https://github.com/WildDragonKing/coverart-cli/pull/30)) ([25c2d13](https://github.com/WildDragonKing/coverart-cli/commit/25c2d13))
-* **security:** avoid personal path leaks in reports ([#27](https://github.com/WildDragonKing/coverart-cli/issues/27)) ([01d3742](https://github.com/WildDragonKing/coverart-cli/commit/01d3742591b21e8fa202437c9dba5dce5f568fb4))
+* **ci:** add guarded release recovery ([#31](https://github.com/buettgen-app/coverart-cli/pull/31)) ([151ec6f](https://github.com/buettgen-app/coverart-cli/commit/151ec6f))
+* **ci:** harden and separate release publishing ([#30](https://github.com/buettgen-app/coverart-cli/pull/30)) ([25c2d13](https://github.com/buettgen-app/coverart-cli/commit/25c2d13))
+* **security:** avoid personal path leaks in reports ([#27](https://github.com/buettgen-app/coverart-cli/issues/27)) ([01d3742](https://github.com/buettgen-app/coverart-cli/commit/01d3742591b21e8fa202437c9dba5dce5f568fb4))
 
-## [0.4.1](https://github.com/WildDragonKing/coverart-cli/compare/v0.4.0...v0.4.1) (2026-05-18)
+## [0.4.1](https://github.com/buettgen-app/coverart-cli/compare/v0.4.0...v0.4.1) (2026-05-18)
 
 
 ### Bug Fixes
 
-* add workflow_dispatch + CodeRabbit badge ([#14](https://github.com/WildDragonKing/coverart-cli/issues/14)) ([ffe5bde](https://github.com/WildDragonKing/coverart-cli/commit/ffe5bded3dfcbb2277df9036fe322b1778124799))
-* redact secret query params before logging ([#17](https://github.com/WildDragonKing/coverart-cli/issues/17)) ([245d11f](https://github.com/WildDragonKing/coverart-cli/commit/245d11fa1e5e7fd8c261736992d6501f3572762b))
-* use absolute URL for screenshot so PyPI renders it ([#18](https://github.com/WildDragonKing/coverart-cli/issues/18)) ([8279679](https://github.com/WildDragonKing/coverart-cli/commit/82796794afa1d3ad0366853d0d7b7ec1a21e43ee))
-* use pepy.tech for PyPI downloads badge ([#16](https://github.com/WildDragonKing/coverart-cli/issues/16)) ([84099b3](https://github.com/WildDragonKing/coverart-cli/commit/84099b330b348f928d680fd2005ad8e6aa9bf184))
+* add workflow_dispatch + CodeRabbit badge ([#14](https://github.com/buettgen-app/coverart-cli/issues/14)) ([ffe5bde](https://github.com/buettgen-app/coverart-cli/commit/ffe5bded3dfcbb2277df9036fe322b1778124799))
+* redact secret query params before logging ([#17](https://github.com/buettgen-app/coverart-cli/issues/17)) ([245d11f](https://github.com/buettgen-app/coverart-cli/commit/245d11fa1e5e7fd8c261736992d6501f3572762b))
+* use absolute URL for screenshot so PyPI renders it ([#18](https://github.com/buettgen-app/coverart-cli/issues/18)) ([8279679](https://github.com/buettgen-app/coverart-cli/commit/82796794afa1d3ad0366853d0d7b7ec1a21e43ee))
+* use pepy.tech for PyPI downloads badge ([#16](https://github.com/buettgen-app/coverart-cli/issues/16)) ([84099b3](https://github.com/buettgen-app/coverart-cli/commit/84099b330b348f928d680fd2005ad8e6aa9bf184))
 
-## [0.4.0](https://github.com/WildDragonKing/coverart-cli/compare/v0.3.0...v0.4.0) (2026-05-17)
+## [0.4.0](https://github.com/buettgen-app/coverart-cli/compare/v0.3.0...v0.4.0) (2026-05-17)
 
 
 ### Features
 
-* add release-please for merge-driven version bumps ([#9](https://github.com/WildDragonKing/coverart-cli/issues/9)) ([28ec876](https://github.com/WildDragonKing/coverart-cli/commit/28ec8768d70e22c50ebd58e6ca170fb65393eb6c))
-* auto-enable squash auto-merge + CodeRabbit config ([#11](https://github.com/WildDragonKing/coverart-cli/issues/11)) ([3756926](https://github.com/WildDragonKing/coverart-cli/commit/37569263e397e61d34d3cd865f4935c94432e3a9))
+* add release-please for merge-driven version bumps ([#9](https://github.com/buettgen-app/coverart-cli/issues/9)) ([28ec876](https://github.com/buettgen-app/coverart-cli/commit/28ec8768d70e22c50ebd58e6ca170fb65393eb6c))
+* auto-enable squash auto-merge + CodeRabbit config ([#11](https://github.com/buettgen-app/coverart-cli/issues/11)) ([3756926](https://github.com/buettgen-app/coverart-cli/commit/37569263e397e61d34d3cd865f4935c94432e3a9))
 
 
 ### Bug Fixes
 
-* drop failing approve step from Dependabot auto-merge ([#12](https://github.com/WildDragonKing/coverart-cli/issues/12)) ([c2f984d](https://github.com/WildDragonKing/coverart-cli/commit/c2f984d7417ee811bc80e90ec9b3d2f587ffddb2))
+* drop failing approve step from Dependabot auto-merge ([#12](https://github.com/buettgen-app/coverart-cli/issues/12)) ([c2f984d](https://github.com/buettgen-app/coverart-cli/commit/c2f984d7417ee811bc80e90ec9b3d2f587ffddb2))
 
 ## [0.3.0] - 2026-05-17
 

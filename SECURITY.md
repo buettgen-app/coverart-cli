@@ -5,7 +5,7 @@
 If you discover a security issue in `coverart-cli`, please **do not file a public issue**.
 Instead, use GitHub's private vulnerability reporting:
 
-- <https://github.com/WildDragonKing/coverart-cli/security/advisories/new>
+- <https://github.com/buettgen-app/coverart-cli/security/advisories/new>
 
 You will receive an acknowledgement within 7 days. The maintainer keeps no
 production deployment, so the realistic scope of a security issue here is
