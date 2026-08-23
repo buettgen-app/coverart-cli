@@ -1,6 +1,7 @@
 """Provider-level smoke tests (no network)."""
 from __future__ import annotations
 
+import urllib.error
 import urllib.request
 
 import pytest
@@ -13,6 +14,7 @@ from coverart_cli.providers.musicbrainz import MusicBrainzProvider
 class DummyProvider(CoverProvider):
     name = "dummy"
     user_agent = "dummy/1.0"
+    allowed_hosts = frozenset({"example.com"})
 
     def fetch(self, artist: str, album: str):
         return None
@@ -21,6 +23,7 @@ class DummyProvider(CoverProvider):
 class FakeResponse:
     def __init__(self, payload: bytes) -> None:
         self.payload = payload
+        self.url = "https://example.com/cover.jpg"
 
     def __enter__(self) -> FakeResponse:
         return self
@@ -125,21 +128,55 @@ def test_safe_url_for_log_handles_garbage() -> None:
     assert _safe_url_for_log("") == ""
 
 
-def test_http_get_rejects_responses_over_size_cap(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_urlopen(request: urllib.request.Request, timeout: int) -> FakeResponse:
-        return FakeResponse(b"x" * 11)
+class FakeOpener:
+    def __init__(self, payload: bytes) -> None:
+        self.payload = payload
 
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    def open(self, request: urllib.request.Request, timeout: int) -> FakeResponse:
+        return FakeResponse(self.payload)
+
+
+def test_http_get_rejects_responses_over_size_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        urllib.request, "build_opener", lambda *handlers: FakeOpener(b"x" * 11)
+    )
 
     result = DummyProvider()._http_get("https://example.com/cover.jpg", max_bytes=10)
     assert result is None
 
 
 def test_http_get_accepts_responses_at_size_cap(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_urlopen(request: urllib.request.Request, timeout: int) -> FakeResponse:
-        return FakeResponse(b"x" * 10)
-
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        urllib.request, "build_opener", lambda *handlers: FakeOpener(b"x" * 10)
+    )
 
     result = DummyProvider()._http_get("https://example.com/cover.jpg", max_bytes=10)
     assert result == b"x" * 10
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://example.com/cover.jpg",
+        "https://example.com.evil.test/cover.jpg",
+        "https://127.0.0.1/cover.jpg",
+    ],
+)
+def test_http_get_blocks_urls_outside_provider_policy(url: str) -> None:
+    assert DummyProvider()._http_get(url) is None
+
+
+def test_redirect_handler_blocks_disallowed_host() -> None:
+    from coverart_cli.providers.base import _RestrictedRedirectHandler
+
+    handler = _RestrictedRedirectHandler(frozenset({"example.com"}))
+    request = urllib.request.Request("https://example.com/start")
+    with pytest.raises(urllib.error.HTTPError, match="redirect host is not allowed"):
+        handler.redirect_request(
+            request,
+            None,
+            302,
+            "Found",
+            {},
+            "https://127.0.0.1/private",
+        )

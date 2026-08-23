@@ -9,35 +9,22 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
+from coverart_cli.providers import ITunesProvider  # noqa: E402
 from coverart_cli.report import AlbumEntry, build_report  # noqa: E402
+from coverart_cli.tagging import detect_image_mime  # noqa: E402
 
 
 def fetch_itunes(artist: str, album: str) -> str | None:
     """Fetch a real cover from iTunes for the demo. Returns data URI or None."""
     import base64
-    import json
-    import urllib.parse
-    import urllib.request
 
-    params = urllib.parse.urlencode(
-        {"term": f"{artist} {album}", "entity": "album", "limit": "1", "media": "music"}
-    )
     try:
-        req = urllib.request.Request(
-            f"https://itunes.apple.com/search?{params}",
-            headers={"User-Agent": "coverart-cli-demo/1.0"},
-        )
-        with urllib.request.urlopen(req, timeout=10) as r:
-            data = json.loads(r.read())
-        if not data.get("results"):
+        result = ITunesProvider(user_agent="coverart-cli-demo/1.0").fetch(artist, album)
+        if result is None:
             return None
-        url = data["results"][0].get("artworkUrl100", "")
-        if not url:
-            return None
-        hi = url.replace("100x100bb", "600x600bb")
-        with urllib.request.urlopen(hi, timeout=10) as r:
-            img = r.read()
-        return f"data:image/jpeg;base64,{base64.b64encode(img).decode('ascii')}"
+        mime = detect_image_mime(result.image_bytes)
+        encoded = base64.b64encode(result.image_bytes).decode("ascii")
+        return f"data:{mime};base64,{encoded}"
     except Exception as e:
         print(f"  warn: could not fetch {artist}/{album}: {e}", file=sys.stderr)
         return None

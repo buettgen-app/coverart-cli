@@ -41,6 +41,7 @@ Security and supply chain integrity are release blockers for this repository.
   versions, and the built wheel passes a clean installation smoke test.
 - PyPI trust is bound to `.github/workflows/release.yml` and the protected
   `pypi` environment; the workflow filename is part of the publisher identity.
-- Pull requests require explicit merges after branch protection passes. Release
+- Verified low-risk Dependabot updates use native auto-merge only after branch
+  protection passes; major and production minor updates stay manual. Release
   preparation uses a short-lived, repository-scoped GitHub App token instead of
   a long-lived personal access token or the workflow `GITHUB_TOKEN`.

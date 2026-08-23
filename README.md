@@ -27,23 +27,39 @@ HTML coverage report so you can see what's still missing.
 pipx install coverart-cli
 ```
 
-## Use
+Requires Python 3.11 or newer. Upgrade an existing installation with
+`pipx upgrade coverart-cli`.
+
+## Quick start
 
 ```bash
-# Fetch + embed + sidecar (free providers — no key needed)
+# 1. Preview the exact library first; this performs no writes
+coverart ~/Music --dry-run -v
+
+# 2. Fetch + embed + sidecar (free providers, no key needed)
 coverart ~/Music
 
-# Add Last.fm too (much higher hit rate)
-LASTFM_API_KEY=xxx coverart ~/Music
+# Optional: add Last.fm as the first provider
+LASTFM_API_KEY=your-key coverart ~/Music
 
 # Just generate the coverage report
 coverart ~/Music --report-only --report-html report.html
 
-# See what would happen, change nothing
-coverart ~/Music --dry-run -v
+# Only write cover.jpg files; leave audio tags unchanged
+coverart ~/Music --no-embed
 ```
 
 Run `coverart --help` for the full flag list.
+
+By default, an album is complete only when it has a usable sidecar **and every
+supported audio file has embedded artwork**. If a local sidecar already exists,
+it is reused to fill missing embeds without a network request. Symbolic links to
+album directories, audio files, or sidecars are ignored, so writes stay inside
+the selected library.
+
+Before the first non-dry run, keep a backup of irreplaceable music files. Tag
+writes are handled by [Mutagen](https://mutagen.readthedocs.io/), but any bulk
+metadata operation deserves a recovery path.
 
 ## Config file
 
@@ -57,9 +73,11 @@ replace_smaller = true
 no_musicbrainz  = false
 ```
 
-Lookup order (later wins): built-in → `~/.config/coverart-cli/config.toml` →
-`./coverart.toml` → `--config PATH` → CLI flags → environment variables. Run
-`coverart ~/Music` afterwards with no flags.
+Lookup order (later wins): built-in defaults →
+`~/.config/coverart-cli/config.toml` → `./coverart.toml` → `--config PATH` →
+CLI flags. `LASTFM_API_KEY` overrides the configured key unless
+`--lastfm-key` is supplied. Run `coverart ~/Music` afterwards with no repeated
+flags.
 
 ## Sources
 
@@ -70,10 +88,29 @@ Tried in order until a cover is found:
 3. **Deezer** — public API, no key
 4. **MusicBrainz** + **Cover Art Archive** — fallback for niche releases
 
+Album and artist names are sent to the enabled providers over HTTPS. Download
+URLs and redirects are restricted to the providers' API and image hosts;
+arbitrary hosts and non-HTTPS URLs are rejected.
+
 ## Supported formats
 
 MP3 (ID3 APIC), M4A/M4B/MP4 (covr atom), FLAC (Picture block),
 Ogg Vorbis / Opus (metadata_block_picture).
+
+## Common workflows
+
+| Goal | Command |
+| --- | --- |
+| Preview all changes | `coverart ~/Music --dry-run -v` |
+| Upgrade small artwork | `coverart ~/Music --min-bytes 30000 --replace-smaller` |
+| Embed only | `coverart ~/Music --no-sidecar` |
+| Sidecars only | `coverart ~/Music --no-embed` |
+| Disable directory-name fallback | `coverart ~/Music --no-fallback-dirnames` |
+| Export misses | `coverart ~/Music --missing-csv missing.csv` |
+| Build an HTML report | `coverart ~/Music --report-only --report-html report.html` |
+
+Use `--workers 1` for deterministic serial processing or when a provider is
+rate-limiting heavily. MusicBrainz requests are always rate-limited internally.
 
 ## Programmatic use
 
@@ -96,7 +133,7 @@ print(stats.fetched_from, stats.not_found)
 | [sacad](https://github.com/desbma/sacad)                  | Best match rate; Rust binary, more sources                       |
 | [get-cover-art](https://github.com/regosen/get_cover_art) | Battle-tested Python API                                         |
 | [beets](https://beets.io/) `fetchart`                     | Already using beets for everything else                          |
-| `coverart-cli` (this)                                     | You want the HTML report + embed/sidecar dual-output in ~700 LOC |
+| `coverart-cli` (this)                                     | You want an HTML report plus embed/sidecar dual output            |
 
 ## Development
 
@@ -143,8 +180,10 @@ hand. A failed publish can be rerun from the same GitHub Actions run without
 introducing a second release path. Historical releases can be recovered by
 manually running the same workflow from `main`; it accepts only an existing
 published release tag and applies every normal validation and test gate. Pull
-requests, including Release PRs and dependency updates, require an explicit
-merge after branch protection passes.
+requests and Release PRs require an explicit merge after branch protection
+passes. Verified low-risk Dependabot patch updates, development-only minor
+updates, and GitHub Actions minor updates use GitHub's native auto-merge; major
+and production minor updates remain manual.
 GitHub Actions changes are gated by the repository's Zizmor security lint;
 third-party AI review remains advisory so availability limits cannot block
 security updates.

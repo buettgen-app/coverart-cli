@@ -17,6 +17,7 @@ class DeezerProvider(CoverProvider):
     """Search Deezer's public catalogue. Uses the cover_xl (1000×1000) URL."""
 
     name = "deezer"
+    allowed_hosts = frozenset({"api.deezer.com", ".dzcdn.net"})
 
     def __init__(self, user_agent: str | None = None) -> None:
         self.user_agent = user_agent or _default_user_agent()

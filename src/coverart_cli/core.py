@@ -68,21 +68,28 @@ def find_album_dirs(root: Path) -> list[Path]:
     """Return all directories under root that contain audio files (depth-first)."""
     albums: list[Path] = []
     for d in sorted(root.rglob("*")):
-        if not d.is_dir() or d.name.startswith("."):
+        try:
+            rel = d.relative_to(root)
+        except ValueError:
+            continue
+        if not d.is_dir() or d.is_symlink() or any(part.startswith(".") for part in rel.parts):
             continue
         try:
-            if any(f.is_file() and f.suffix.lower() in AUDIO_EXTS for f in d.iterdir()):
+            if any(_is_audio_file(f) for f in d.iterdir()):
                 albums.append(d)
         except (PermissionError, OSError) as e:
             log.warning("cannot read %s: %s", d, e)
     return albums
 
 
+def _is_audio_file(path: Path) -> bool:
+    """Return true for regular supported audio files, never symbolic links."""
+    return path.is_file() and not path.is_symlink() and path.suffix.lower() in AUDIO_EXTS
+
+
 def album_meta_for(album_dir: Path, *, fallback_to_dirnames: bool) -> AlbumMeta | None:
     """Read album metadata: tags first, optional fallback to parent/dir name."""
-    audio_files = sorted(
-        f for f in album_dir.iterdir() if f.is_file() and f.suffix.lower() in AUDIO_EXTS
-    )
+    audio_files = sorted(f for f in album_dir.iterdir() if _is_audio_file(f))
     for f in audio_files:
         meta = read_album_meta(f)
         if meta:
@@ -113,37 +120,29 @@ def process_album(
     with lock:
         stats.albums_total += 1
 
-    # Decide whether to bother fetching anything at all.
-    # Logic:
-    #   - Sidecar mode on (default): a sidecar that meets min_sidecar_bytes counts as done.
-    #   - Embed-only mode: we look at the embedded covers of the first few tracks.
-    # Setting --min-bytes > 0 raises the bar in both cases.
+    # An album is complete only when every requested output meets its quality bar.
     sidecar_threshold = max(opts.min_sidecar_bytes, MIN_COVER_BYTES)
     existing_sidecar = (
         find_sidecar(album_dir, min_bytes=sidecar_threshold) if opts.do_sidecar else None
     )
-    audio_files = sorted(
-        f for f in album_dir.iterdir() if f.is_file() and f.suffix.lower() in AUDIO_EXTS
-    )
-    existing_min_embed = (
-        min((existing_embedded_size(f) for f in audio_files[:3]), default=0) if opts.do_embed else 0
-    )
-
+    current_sidecar = None
     if opts.do_sidecar:
-        # Sidecar is the gatekeeper. If it exists and is big enough we're done.
-        # The upgrade flag --min-bytes raises the size threshold the existing one must meet.
-        if existing_sidecar is not None:
-            with lock:
-                stats.sidecar_already += 1
-            log.info("[skip]     %s (sidecar already meets quality bar)", album_dir.name)
-            return
-    else:
-        # Embed-only mode: every audio file needs an embed of acceptable size.
-        if existing_min_embed > 0 and existing_min_embed >= opts.min_embedded_bytes:
-            with lock:
-                stats.sidecar_already += 1
-            log.info("[skip]     %s (embeds already present)", album_dir.name)
-            return
+        current_sidecar = existing_sidecar or find_sidecar(album_dir, min_bytes=-1)
+    audio_files = sorted(f for f in album_dir.iterdir() if _is_audio_file(f))
+    embedded_sizes = (
+        {f: existing_embedded_size(f) for f in audio_files} if opts.do_embed else {}
+    )
+    embeds_complete = not opts.do_embed or all(
+        size > 0 and size >= opts.min_embedded_bytes for size in embedded_sizes.values()
+    )
+    sidecar_complete = not opts.do_sidecar or existing_sidecar is not None
+
+    if sidecar_complete and embeds_complete:
+        with lock:
+            stats.sidecar_already += 1
+            stats.files_already_embedded += len(embedded_sizes)
+        log.info("[skip]     %s (requested artwork already present)", album_dir.name)
+        return
 
     meta = album_meta_for(album_dir, fallback_to_dirnames=opts.fallback_to_dirnames)
     if not meta:
@@ -154,10 +153,23 @@ def process_album(
         return
 
     result: ProviderResult | None = None
-    for provider in opts.providers:
-        result = provider.fetch(meta.artist, meta.album)
-        if result:
-            break
+    used_sidecar = False
+    if existing_sidecar is not None and not embeds_complete:
+        try:
+            result = ProviderResult(
+                image_bytes=existing_sidecar.read_bytes(),
+                source="sidecar",
+                image_url=str(existing_sidecar),
+            )
+            used_sidecar = True
+        except OSError as e:
+            log.warning("cannot reuse sidecar %s: %s", existing_sidecar, e)
+
+    if result is None:
+        for provider in opts.providers:
+            result = provider.fetch(meta.artist, meta.album)
+            if result:
+                break
 
     if not result:
         log.info("[miss]     %s", meta)
@@ -168,49 +180,41 @@ def process_album(
 
     new_size = len(result.image_bytes)
 
-    # Apply "keep larger existing" rule.
-    if opts.keep_larger_existing:
-        existing_size_for_compare = max(
-            existing_sidecar.stat().st_size if existing_sidecar else 0,
-            existing_min_embed or 0,
-        )
-        if existing_size_for_compare > new_size:
-            log.info(
-                "[keep]     %s (existing %d B > new %d B)",
-                meta,
-                existing_size_for_compare,
-                new_size,
-            )
-            with lock:
-                stats.sidecar_already += 1
-            return
-
     log.info("[%s] %s (%d B)", result.source, meta, new_size)
-    with lock:
-        stats.record_fetch(result.source)
+    if not used_sidecar:
+        with lock:
+            stats.record_fetch(result.source)
 
     if opts.dry_run:
         return
 
-    if opts.do_sidecar:
-        try:
-            write_sidecar(album_dir, result.image_bytes)
-        except OSError as e:
-            log.error("sidecar write failed for %s: %s", album_dir, e)
+    if opts.do_sidecar and existing_sidecar is None:
+        current_size = current_sidecar.stat().st_size if current_sidecar else 0
+        if opts.keep_larger_existing and current_size > new_size:
+            log.info("[keep]     %s sidecar (%d B > %d B)", meta, current_size, new_size)
             with lock:
-                stats.errors += 1
+                stats.sidecar_already += 1
+        else:
+            try:
+                write_sidecar(album_dir, result.image_bytes)
+            except OSError as e:
+                log.error("sidecar write failed for %s: %s", album_dir, e)
+                with lock:
+                    stats.errors += 1
 
     if opts.do_embed:
         for f in audio_files:
-            cur = existing_embedded_size(f)
+            cur = embedded_sizes[f]
             replace_existing = cur > 0 and cur < opts.min_embedded_bytes
             if cur > 0 and not replace_existing:
                 with lock:
                     stats.files_already_embedded += 1
                 continue
-            if replace_existing:
-                _clear_embedded_cover(f)
-            ok = embed_cover(f, result.image_bytes)
+            if replace_existing and opts.keep_larger_existing and cur > new_size:
+                with lock:
+                    stats.files_already_embedded += 1
+                continue
+            ok = embed_cover(f, result.image_bytes, replace=replace_existing)
             with lock:
                 if ok:
                     stats.files_embedded += 1
@@ -218,56 +222,11 @@ def process_album(
                     stats.errors += 1
 
 
-def _clear_embedded_cover(path: Path) -> None:
-    """Strip embedded artwork so embed_cover can write a new one."""
-    from mutagen.flac import FLAC
-    from mutagen.id3 import ID3, ID3NoHeaderError
-    from mutagen.mp4 import MP4
-    from mutagen.oggopus import OggOpus
-    from mutagen.oggvorbis import OggVorbis
-
-    from coverart_cli.tagging import (
-        FLAC_EXTS,
-        MP3_EXTS,
-        MP4_EXTS,
-        OGG_EXTS,
-        OPUS_EXTS,
-    )
-
-    suffix = path.suffix.lower()
-    try:
-        if suffix in MP3_EXTS:
-            try:
-                tags = ID3(path)
-                tags.delall("APIC")
-                tags.save(path, v2_version=3)
-            except ID3NoHeaderError:
-                return
-        elif suffix in MP4_EXTS:
-            audio = MP4(path)
-            tags = audio.tags
-            if tags is not None and "covr" in tags:
-                del tags["covr"]
-                audio.save()
-        elif suffix in FLAC_EXTS:
-            audio = FLAC(path)
-            audio.clear_pictures()
-            audio.save()
-        elif suffix in (OGG_EXTS | OPUS_EXTS):
-            cls = OggOpus if suffix in OPUS_EXTS else OggVorbis
-            audio = cls(path)
-            if "metadata_block_picture" in audio:
-                del audio["metadata_block_picture"]
-                audio.save()
-    except Exception as e:
-        log.debug("clear-cover failed on %s: %s", path, e)
-
-
 def run(opts: RunOptions) -> RunStats:
     """Top-level: walk root, process every album directory."""
     stats = RunStats()
-    if not opts.root.exists():
-        raise FileNotFoundError(f"root not found: {opts.root}")
+    if not opts.root.is_dir():
+        raise FileNotFoundError(f"library root not found or not a directory: {opts.root}")
     if not opts.providers:
         raise ValueError("at least one provider must be configured")
 

@@ -12,9 +12,10 @@ These verify the full pipeline works:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
-from mutagen.id3 import ID3, TALB, TIT2, TPE1, TPE2
+from mutagen.id3 import APIC, ID3, TALB, TIT2, TPE1, TPE2
 
 from coverart_cli.core import RunOptions, run
 from coverart_cli.providers.base import CoverProvider, ProviderResult
@@ -95,18 +96,71 @@ def test_end_to_end_fetch_embed_sidecar(tmp_path: Path) -> None:
         assert any(k.startswith("APIC") for k in tags), f"missing APIC in {track.name}"
 
 
-def test_skip_when_cover_already_present(tmp_path: Path) -> None:
+def test_existing_sidecar_fills_missing_embeds_without_network(tmp_path: Path) -> None:
     album_dir = _make_album(tmp_path, "Pink Floyd", "The Wall")
     (album_dir / "cover.jpg").write_bytes(b"\xff\xd8\xff" + b"x" * 4000)
     provider = FakeProvider()
 
     stats = run(RunOptions(root=tmp_path, providers=[provider]))
 
-    # Provider never called — sidecar already met the threshold.
+    # Provider is not needed: reuse the local sidecar for the missing embeds.
     assert provider.calls == []
     assert stats.albums_total == 1
-    assert stats.sidecar_already == 1
-    assert stats.files_embedded == 0
+    assert stats.files_embedded == 2
+    for track in album_dir.glob("*.mp3"):
+        assert any(k.startswith("APIC") for k in ID3(track))
+
+
+def test_atomic_sidecar_write_replaces_symlink_without_touching_target(tmp_path: Path) -> None:
+    library = tmp_path / "library"
+    album_dir = _make_album(library, "Pink Floyd", "The Wall")
+    outside = tmp_path / "outside.jpg"
+    outside.write_bytes(b"keep me")
+    sidecar = album_dir / "cover.jpg"
+    sidecar.symlink_to(outside)
+
+    run(
+        RunOptions(
+            root=library,
+            providers=[FakeProvider()],
+            do_embed=False,
+        )
+    )
+
+    assert outside.read_bytes() == b"keep me"
+    assert not sidecar.is_symlink()
+    assert sidecar.read_bytes() == FAKE_JPEG
+
+
+def test_audio_symlink_is_not_modified(tmp_path: Path) -> None:
+    library = tmp_path / "library"
+    album_dir = _make_album(library, "Pink Floyd", "The Wall", tracks=1)
+    outside_album = _make_album(tmp_path / "outside", "Other", "External", tracks=1)
+    outside_track = outside_album / "01.mp3"
+    (album_dir / "02.mp3").symlink_to(outside_track)
+
+    stats = run(RunOptions(root=library, providers=[FakeProvider()]))
+
+    assert stats.files_embedded == 1
+    assert not any(k.startswith("APIC") for k in ID3(outside_track))
+
+
+def test_directory_symlink_is_not_scanned(tmp_path: Path) -> None:
+    library = tmp_path / "library"
+    library.mkdir()
+    outside_album = _make_album(tmp_path / "outside", "Other", "External", tracks=1)
+    (library / "linked-album").symlink_to(outside_album, target_is_directory=True)
+
+    stats = run(RunOptions(root=library, providers=[FakeProvider()]))
+
+    assert stats.albums_total == 0
+    assert not any(k.startswith("APIC") for k in ID3(outside_album / "01.mp3"))
+
+
+def test_hidden_tree_is_not_scanned(tmp_path: Path) -> None:
+    _make_album(tmp_path / ".cache", "Artist", "Album", tracks=1)
+    stats = run(RunOptions(root=tmp_path, providers=[FakeProvider()]))
+    assert stats.albums_total == 0
 
 
 def test_upgrade_replaces_small_existing_sidecar(tmp_path: Path) -> None:
@@ -128,6 +182,27 @@ def test_upgrade_replaces_small_existing_sidecar(tmp_path: Path) -> None:
     assert provider.calls == [("Pink Floyd", "The Wall")]
     assert stats.fetched_from == {"fake": 1}
     assert (album_dir / "cover.jpg").read_bytes() == FAKE_JPEG
+
+
+def test_upgrade_replaces_embedded_cover_in_one_save(tmp_path: Path) -> None:
+    album_dir = _make_album(tmp_path, "Pink Floyd", "The Wall", tracks=1)
+    track = album_dir / "01.mp3"
+    tags = ID3(track)
+    tags.add(APIC(encoding=3, mime="image/jpeg", type=3, desc="Cover", data=b"old"))
+    tags.save(track, v2_version=3)
+
+    stats = run(
+        RunOptions(
+            root=tmp_path,
+            providers=[FakeProvider()],
+            do_sidecar=False,
+            min_embedded_bytes=100,
+        )
+    )
+
+    pictures = [frame for frame in ID3(track).values() if isinstance(frame, APIC)]
+    assert stats.files_embedded == 1
+    assert [cast(Any, picture).data for picture in pictures] == [FAKE_JPEG]
 
 
 def test_provider_fallback_chain(tmp_path: Path) -> None:

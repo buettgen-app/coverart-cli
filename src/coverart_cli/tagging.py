@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import base64
 import logging
+import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -62,8 +64,11 @@ def find_sidecar(album_dir: Path, *, min_bytes: int = MIN_COVER_BYTES) -> Path |
     """Return existing sidecar in album_dir if it meets the byte threshold."""
     for name in SIDECAR_NAMES:
         p = album_dir / name
-        if p.exists() and p.stat().st_size > min_bytes:
-            return p
+        try:
+            if p.is_file() and not p.is_symlink() and p.stat().st_size > min_bytes:
+                return p
+        except OSError:
+            continue
     return None
 
 
@@ -146,25 +151,32 @@ def has_embedded_cover(path: Path) -> bool:
     return False
 
 
-def embed_cover(path: Path, cover_bytes: bytes, mime: str | None = None) -> bool:
-    """Embed cover art into a single audio file. Skips if cover already present.
+def embed_cover(
+    path: Path,
+    cover_bytes: bytes,
+    mime: str | None = None,
+    *,
+    replace: bool = False,
+) -> bool:
+    """Embed cover art into a single audio file.
 
-    Returns True on success (or skip-already-has), False on failure.
+    Existing artwork is kept unless ``replace`` is true. Returns True on
+    success (or skip-already-has), False on failure.
     """
     mime = mime or detect_image_mime(cover_bytes)
     suffix = path.suffix.lower()
     try:
         if suffix in MP3_EXTS:
-            return _embed_mp3(path, cover_bytes, mime)
+            return _embed_mp3(path, cover_bytes, mime, replace=replace)
         if suffix in MP4_EXTS:
             fmt = MP4Cover.FORMAT_PNG if mime == "image/png" else MP4Cover.FORMAT_JPEG
-            return _embed_m4a(path, cover_bytes, fmt)
+            return _embed_m4a(path, cover_bytes, fmt, replace=replace)
         if suffix in FLAC_EXTS:
-            return _embed_flac(path, cover_bytes, mime)
+            return _embed_flac(path, cover_bytes, mime, replace=replace)
         if suffix in OGG_EXTS:
-            return _embed_ogg(path, cover_bytes, mime, OggVorbis)
+            return _embed_ogg(path, cover_bytes, mime, OggVorbis, replace=replace)
         if suffix in OPUS_EXTS:
-            return _embed_ogg(path, cover_bytes, mime, OggOpus)
+            return _embed_ogg(path, cover_bytes, mime, OggOpus, replace=replace)
     except Exception as e:
         log.error("embed failed on %s: %s", path, e)
         return False
@@ -172,26 +184,28 @@ def embed_cover(path: Path, cover_bytes: bytes, mime: str | None = None) -> bool
     return False
 
 
-def _embed_mp3(path: Path, cover: bytes, mime: str) -> bool:
+def _embed_mp3(path: Path, cover: bytes, mime: str, *, replace: bool) -> bool:
     try:
         tags = ID3(path)
     except ID3NoHeaderError:
         tags = ID3()
-    if any(k.startswith("APIC") for k in tags):
+    if any(k.startswith("APIC") for k in tags) and not replace:
         return True
+    if replace:
+        tags.delall("APIC")
     tags.add(APIC(encoding=3, mime=mime, type=3, desc="Cover", data=cover))
     tags.save(path, v2_version=3)
     return True
 
 
-def _embed_m4a(path: Path, cover: bytes, fmt: int) -> bool:
+def _embed_m4a(path: Path, cover: bytes, fmt: int, *, replace: bool) -> bool:
     audio = MP4(path)
     if audio.tags is None:
         audio.add_tags()
     tags = audio.tags
     if tags is None:
         return False
-    if "covr" in tags and tags["covr"]:
+    if "covr" in tags and tags["covr"] and not replace:
         return True
     tags["covr"] = [MP4Cover(cover, imageformat=fmt)]
     audio.save()
@@ -207,19 +221,21 @@ def _make_picture(cover: bytes, mime: str) -> Picture:
     return pic
 
 
-def _embed_flac(path: Path, cover: bytes, mime: str) -> bool:
+def _embed_flac(path: Path, cover: bytes, mime: str, *, replace: bool) -> bool:
     audio = FLAC(path)
-    if audio.pictures:
+    if audio.pictures and not replace:
         return True
+    if replace:
+        audio.clear_pictures()
     audio.add_picture(_make_picture(cover, mime))
     audio.save()
     return True
 
 
-def _embed_ogg(path: Path, cover: bytes, mime: str, cls) -> bool:
+def _embed_ogg(path: Path, cover: bytes, mime: str, cls, *, replace: bool) -> bool:
     """Embed for Ogg-container formats (Vorbis, Opus) using metadata_block_picture."""
     audio = cls(path)
-    if audio.get("metadata_block_picture"):
+    if audio.get("metadata_block_picture") and not replace:
         return True
     pic = _make_picture(cover, mime)
     audio["metadata_block_picture"] = [base64.b64encode(pic.write()).decode("ascii")]
@@ -228,11 +244,19 @@ def _embed_ogg(path: Path, cover: bytes, mime: str, cls) -> bool:
 
 
 def write_sidecar(album_dir: Path, cover_bytes: bytes, *, prefer_png: bool = False) -> Path:
-    """Write a cover.jpg or cover.png sidecar file. Returns the path written."""
+    """Atomically write a cover sidecar without following an existing symlink."""
     mime = detect_image_mime(cover_bytes)
     ext = ".png" if mime == "image/png" or prefer_png else ".jpg"
     dest = album_dir / f"cover{ext}"
-    dest.write_bytes(cover_bytes)
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=album_dir, prefix=".coverart-", delete=False) as tmp:
+            tmp.write(cover_bytes)
+            temp_path = Path(tmp.name)
+        os.replace(temp_path, dest)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
     return dest
 
 

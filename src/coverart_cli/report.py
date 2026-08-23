@@ -97,7 +97,7 @@ def scan_library(root: Path, *, embed_thumbs: bool = True) -> list[AlbumEntry]:
         raise FileNotFoundError(f"library root not found: {root}")
 
     for d in sorted(root.rglob("*")):
-        if not d.is_dir():
+        if not d.is_dir() or d.is_symlink():
             continue
         try:
             rel = d.relative_to(root)
@@ -108,7 +108,7 @@ def scan_library(root: Path, *, embed_thumbs: bool = True) -> list[AlbumEntry]:
         try:
             audio_files = [
                 f for f in d.iterdir()
-                if f.is_file() and f.suffix.lower() in AUDIO_EXTS
+                if f.is_file() and not f.is_symlink() and f.suffix.lower() in AUDIO_EXTS
             ]
         except (PermissionError, OSError) as e:
             log.warning("cannot read %s: %s", d, e)
