@@ -127,7 +127,8 @@ def process_album(
     )
     reusable_sidecar = existing_sidecar
     if reusable_sidecar is None and opts.do_embed and not opts.do_sidecar:
-        reusable_sidecar = find_sidecar(album_dir)
+        embed_threshold = max(opts.min_embedded_bytes, MIN_COVER_BYTES)
+        reusable_sidecar = find_sidecar(album_dir, min_bytes=embed_threshold)
     current_sidecar = None
     if opts.do_sidecar:
         current_sidecar = existing_sidecar or find_sidecar(album_dir, min_bytes=-1)
