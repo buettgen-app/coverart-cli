@@ -158,19 +158,21 @@ Commits to `main` follow [Conventional Commits](https://www.conventionalcommits.
 | `docs:`, `refactor:`, `perf:`   | changelog entry, no bump   |
 | `chore:`, `ci:`, `test:`        | hidden in changelog        |
 
-The `Prepare release` workflow uses a short-lived GitHub App token to open and
-update one rolling Release PR. Merging that PR creates the version tag and
-publishes the GitHub Release. Its `published` event triggers the isolated
-`Publish release` workflow, which verifies that the tag belongs to `main` and
-matches the package metadata and changelog. It builds one wheel and source
-distribution, attaches those exact files to the GitHub Release, and publishes
-them to PyPI with OIDC attestations.
+The `Prepare release` workflow uses the repository-scoped `GITHUB_TOKEN` to
+open and update one rolling Release PR. Merging that PR creates the version tag
+and publishes the GitHub Release. Because GitHub intentionally suppresses the
+release event created by its workflow token, the same trusted run sends an
+authenticated repository dispatch to the isolated `Publish release` workflow.
+That workflow verifies the source workflow run, release tag, exact commit,
+package metadata, and changelog. It builds one wheel and source distribution,
+attaches those exact files to the GitHub Release, and publishes them to PyPI
+with OIDC attestations.
 
-Configure a repository-scoped GitHub App with `Contents: read and write` and
-`Pull requests: read and write`, then set its App ID as the repository variable
-`RELEASE_APP_ID` and its private key as the repository secret
-`RELEASE_APP_PRIVATE_KEY`. The repository-wide setting that lets
-`GITHUB_TOKEN` create or approve pull requests can remain disabled.
+No release App, private key, or personal access token is required. In
+`Settings → Actions → General → Workflow permissions`, enable **Allow GitHub
+Actions to create and approve pull requests**. GitHub may hold checks on a
+Release Please PR until a maintainer selects **Approve workflows to run**; this
+approval remains part of the manual release gate.
 
 The PyPI Trusted Publisher must be configured for GitHub owner `buettgen-app`,
 repository `coverart-cli`, workflow `release.yml`, and environment `pypi`. That filename is the stable
