@@ -1,0 +1,46 @@
+name: Fuzz
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "fuzz/**"
+      - "requirements-fuzz.txt"
+      - ".github/workflows/fuzz.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "fuzz/**"
+      - "requirements-fuzz.txt"
+      - ".github/workflows/fuzz.yml"
+  schedule:
+    - cron: "19 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  atheris:
+    name: Atheris security boundaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-fuzz.txt
+      - name: Install hash-locked fuzzing tools
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements-fuzz.txt
+          python -m pip install --disable-pip-version-check --no-deps -e .
+      - name: Fuzz report and logging boundaries
+        env:
+          FUZZ_SECONDS: ${{ github.event_name == 'pull_request' && '15' || '120' }}
+        run: python fuzz/fuzz_report.py -max_total_time="$FUZZ_SECONDS" -rss_limit_mb=512

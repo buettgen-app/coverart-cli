@@ -24,7 +24,9 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install workflow security tools
-        run: python -m pip install --disable-pip-version-check -e ".[dev]"
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements-ci.txt
+          python -m pip install --disable-pip-version-check --no-deps -e .
       - name: Audit GitHub Actions workflows
         run: zizmor .github/workflows
 
