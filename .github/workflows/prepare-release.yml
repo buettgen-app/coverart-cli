@@ -26,6 +26,9 @@ jobs:
           token: ${{ github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          # A newly created draft is not the latest published release yet. Without this guard,
+          # release-please immediately opens the next release PR with the same commit history.
+          skip-github-pull-request: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(main): release ') }}
       - name: Start verified publication
         if: ${{ steps.release.outputs.release_created == 'true' }}
         env:
