@@ -24,11 +24,15 @@ env:
   RELEASE_TAG: ${{ github.event.client_payload.tag || github.event.inputs.tag }}
   RELEASE_SHA: ${{ github.event.client_payload.sha || '' }}
   RELEASE_RUN_ID: ${{ github.event.client_payload.run_id || '' }}
+  RELEASE_REF: ${{ github.event.client_payload.sha || github.event.inputs.tag }}
 
 jobs:
   validate:
     name: Validate release
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
     outputs:
       release_id: ${{ steps.release.outputs.id }}
       draft: ${{ steps.release.outputs.draft }}
@@ -73,17 +77,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          release="$(
-            gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
-              jq -ce --arg tag "$RELEASE_TAG" \
-                '[.[] | select(.tag_name == $tag)] | if length == 1 then .[0] else error("release not found or ambiguous") end'
-          )"
+          release="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")"
           draft="$(jq -r .draft <<<"$release")"
           immutable="$(jq -r '.immutable // false' <<<"$release")"
 
-          if [ "$GITHUB_EVENT_NAME" = "repository_dispatch" ] &&
-             { [ "$draft" != "true" ] || [ "$immutable" != "false" ]; }; then
-            echo "::error::$RELEASE_TAG must be a mutable draft before verified publication."
+          if [ "$GITHUB_EVENT_NAME" = "repository_dispatch" ]; then
+            if [ "$draft" != "true" ] || [ "$immutable" != "false" ]; then
+              echo "::error::$RELEASE_TAG must be a mutable draft before verified publication."
+              exit 1
+            fi
+          elif [ "$draft" != "false" ]; then
+            echo "::error::Manual recovery requires an existing published release."
             exit 1
           fi
 
@@ -91,7 +95,7 @@ jobs:
           echo "draft=$draft" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.RELEASE_REF }}
           fetch-depth: 0
           persist-credentials: false
       - name: Verify dispatched release commit
@@ -148,7 +152,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.RELEASE_REF }}
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -168,7 +172,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.RELEASE_REF }}
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -212,6 +216,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$RELEASE_TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+      - name: Validate draft release assets
+        if: needs.validate.outputs.draft == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.validate.outputs.release_id }}
+        run: |
+          expected_assets="$(find dist -maxdepth 1 -type f -printf '%f\n' | sort)"
+          actual_assets="$(
+            gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" |
+              jq -r '.assets[].name' |
+              sort
+          )"
+          if [ "$(printf '%s\n' "$expected_assets" | sed '/^$/d' | wc -l | tr -d ' ')" -ne 2 ] ||
+             [ "$actual_assets" != "$expected_assets" ]; then
+            echo "::error::$RELEASE_TAG contains unexpected or missing release assets; leaving it as a mutable draft."
+            printf 'Expected:\n%s\nActual:\n%s\n' "$expected_assets" "$actual_assets"
+            exit 1
+          fi
       - name: Publish draft release
         if: needs.validate.outputs.draft == 'true'
         env:
