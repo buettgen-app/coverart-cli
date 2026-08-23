@@ -23,6 +23,34 @@ def _safe_url_for_log(url: str) -> str:
 log = logging.getLogger(__name__)
 
 
+def _is_allowed_https_url(url: str, allowed_hosts: frozenset[str]) -> bool:
+    """Accept HTTPS URLs only when their hostname matches an explicit allowlist."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        host = (parsed.hostname or "").lower().rstrip(".")
+    except (TypeError, ValueError):
+        return False
+    if parsed.scheme != "https" or not host:
+        return False
+    return any(
+        host == pattern.lstrip(".") or (pattern.startswith(".") and host.endswith(pattern))
+        for pattern in allowed_hosts
+    )
+
+
+class _RestrictedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Apply the same host boundary to every redirect before following it."""
+
+    def __init__(self, allowed_hosts: frozenset[str]) -> None:
+        self.allowed_hosts = allowed_hosts
+        super().__init__()
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not _is_allowed_https_url(newurl, self.allowed_hosts):
+            raise urllib.error.HTTPError(newurl, 403, "redirect host is not allowed", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def _default_user_agent() -> str:
     """Build a sensible default UA string from the current package version."""
     # Local import to avoid a circular dep at module import time.
@@ -45,6 +73,7 @@ class CoverProvider(ABC):
 
     name: str = "base"
     user_agent: str = "coverart-cli"  # subclasses override in __init__
+    allowed_hosts: frozenset[str] = frozenset()
 
     @abstractmethod
     def fetch(self, artist: str, album: str) -> ProviderResult | None:
@@ -60,11 +89,20 @@ class CoverProvider(ABC):
         max_bytes: int = MAX_HTTP_RESPONSE_BYTES,
     ) -> bytes | None:
         """HTTP GET with retry on transient failures (5xx, timeout)."""
+        if not _is_allowed_https_url(url, self.allowed_hosts):
+            log.debug("blocked URL outside provider host policy: %s", _safe_url_for_log(url))
+            return None
+
         last_err: Exception | None = None
+        opener = urllib.request.build_opener(_RestrictedRedirectHandler(self.allowed_hosts))
         for attempt in range(retries + 1):
             req = urllib.request.Request(url, headers={"User-Agent": self.user_agent})
             try:
-                with urllib.request.urlopen(req, timeout=timeout) as r:
+                with opener.open(req, timeout=timeout) as r:
+                    final_url = getattr(r, "url", url)
+                    if not _is_allowed_https_url(final_url, self.allowed_hosts):
+                        log.debug("blocked final URL outside provider host policy")
+                        return None
                     body = r.read(max_bytes + 1)
                     if len(body) > max_bytes:
                         log.debug("%s response too large", _safe_url_for_log(url))

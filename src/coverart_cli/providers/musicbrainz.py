@@ -20,6 +20,12 @@ MB_MIN_DELAY = 1.1
 
 class MusicBrainzProvider(CoverProvider):
     name = "musicbrainz"
+    allowed_hosts = frozenset({
+        "musicbrainz.org",
+        "coverartarchive.org",
+        "archive.org",
+        ".archive.org",
+    })
 
     def __init__(self, user_agent: str | None = None, search_limit: int = 5) -> None:
         # MusicBrainz REQUIRES a meaningful UA with contact info; nudge users.

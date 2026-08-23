@@ -38,6 +38,18 @@ def test_load_config_ignores_malformed(tmp_path: Path) -> None:
     assert load_config(p) == {}
 
 
+def test_load_config_normalizes_paths_and_rejects_invalid_types(tmp_path: Path) -> None:
+    p = tmp_path / "c.toml"
+    p.write_text(
+        'report_html = "reports/library.html"\n'
+        'workers = "many"\n'
+        'no_embed = "yes"\n'
+        "min_bytes = -1\n"
+    )
+
+    assert load_config(p) == {"report_html": Path("reports/library.html")}
+
+
 def test_allowed_keys_match_argparse_dests() -> None:
     """The keys we accept must match argparse argument dests."""
     from coverart_cli.cli import build_parser

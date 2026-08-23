@@ -17,6 +17,7 @@ class ITunesProvider(CoverProvider):
     """Search Apple's public iTunes catalogue. Returns the largest available artwork."""
 
     name = "itunes"
+    allowed_hosts = frozenset({"itunes.apple.com", ".mzstatic.com"})
 
     def __init__(self, user_agent: str | None = None) -> None:
         self.user_agent = user_agent or _default_user_agent()

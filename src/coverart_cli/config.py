@@ -51,6 +51,12 @@ ALLOWED_KEYS: frozenset[str] = frozenset({
     "no_thumbs",
     "report_only",
 })
+BOOL_KEYS = ALLOWED_KEYS - {
+    "lastfm_key", "user_agent", "min_bytes", "workers", "missing_csv", "report_html"
+}
+INT_KEYS = frozenset({"min_bytes", "workers"})
+PATH_KEYS = frozenset({"missing_csv", "report_html"})
+STRING_KEYS = frozenset({"lastfm_key", "user_agent"})
 
 
 def default_config_paths() -> list[Path]:
@@ -86,6 +92,22 @@ def load_config(explicit_path: Path | None = None) -> dict:
         for key, value in data.items():
             if key not in ALLOWED_KEYS:
                 log.warning("ignoring unknown config key %r in %s", key, p)
+                continue
+            if key in BOOL_KEYS and not isinstance(value, bool):
+                log.warning("ignoring non-boolean config key %r in %s", key, p)
+                continue
+            if key in INT_KEYS:
+                minimum = 1 if key == "workers" else 0
+                if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+                    log.warning("ignoring invalid integer config key %r in %s", key, p)
+                    continue
+            if key in PATH_KEYS:
+                if not isinstance(value, str):
+                    log.warning("ignoring non-string path config key %r in %s", key, p)
+                    continue
+                value = Path(value).expanduser()
+            if key in STRING_KEYS and not isinstance(value, str):
+                log.warning("ignoring non-string config key %r in %s", key, p)
                 continue
             merged[key] = value
     return merged

@@ -19,6 +19,7 @@ PLACEHOLDER_HASHES = frozenset({
 
 class LastFmProvider(CoverProvider):
     name = "lastfm"
+    allowed_hosts = frozenset({"ws.audioscrobbler.com", ".lastfm.freetls.fastly.net"})
 
     def __init__(self, api_key: str, user_agent: str | None = None) -> None:
         if not api_key:

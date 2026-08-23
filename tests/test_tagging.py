@@ -47,6 +47,13 @@ def test_find_sidecar_missing(tmp_path: Path) -> None:
     assert find_sidecar(tmp_path) is None
 
 
+def test_find_sidecar_ignores_symlink(tmp_path: Path) -> None:
+    target = tmp_path / "real.jpg"
+    target.write_bytes(b"x" * 3000)
+    (tmp_path / "cover.jpg").symlink_to(target)
+    assert find_sidecar(tmp_path) is None
+
+
 def test_find_sidecar_respects_min_bytes(tmp_path: Path) -> None:
     cover = tmp_path / "cover.jpg"
     cover.write_bytes(b"x" * 10_000)
