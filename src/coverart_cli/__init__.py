@@ -8,7 +8,7 @@ Public API for library consumers:
 Anything not exported from this top-level package may change without notice.
 """
 
-__version__ = "0.4.3"  # x-release-please-version
+__version__ = "0.4.4"  # x-release-please-version
 
 # Re-exports come after __version__ so submodules can import it safely.
 from coverart_cli.core import RunOptions, RunStats, run  # noqa: E402
