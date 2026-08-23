@@ -9,15 +9,16 @@ on:
     # Weekly extra scan to catch newly disclosed CVEs in dependencies.
     - cron: "13 7 * * 1"
 
-permissions:
-  contents: read
-  security-events: write
-  actions: read
+permissions: {}
 
 jobs:
   analyze:
     name: Analyze (python)
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
