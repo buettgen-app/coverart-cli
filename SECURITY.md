@@ -43,5 +43,7 @@ Security and supply chain integrity are release blockers for this repository.
   `pypi` environment; the workflow filename is part of the publisher identity.
 - Verified low-risk Dependabot updates use native auto-merge only after branch
   protection passes; major and production minor updates stay manual. Release
-  preparation uses a short-lived, repository-scoped GitHub App token instead of
-  a long-lived personal access token or the workflow `GITHUB_TOKEN`.
+  preparation uses the repository-scoped workflow `GITHUB_TOKEN`; no
+  long-lived personal token or private GitHub App key is stored. Release Please
+  dispatches the separately validated `release.yml` workflow only after it has
+  created a published release.
