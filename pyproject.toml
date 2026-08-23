@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "coverart-cli"
-version = "0.5.0"
+version = "0.6.0"
 description = "Fetch missing album covers from Last.fm, iTunes, Deezer, MusicBrainz; embed in MP3/M4A/FLAC/Ogg and write a cover.jpg sidecar"
 readme = "README.md"
 requires-python = ">=3.11"
