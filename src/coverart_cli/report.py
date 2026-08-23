@@ -117,7 +117,7 @@ def scan_library(root: Path, *, embed_thumbs: bool = True) -> list[AlbumEntry]:
             continue
 
         sidecar = find_sidecar(d)
-        has_embedded = any(has_embedded_cover(f) for f in audio_files[:3])
+        has_embedded = any(has_embedded_cover(f) for f in audio_files)
         has_any_cover = bool(sidecar) or has_embedded
 
         cover_data_uri: str | None = None
