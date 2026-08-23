@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4](https://github.com/buettgen-app/coverart-cli/compare/v0.4.3...v0.4.4) (2026-08-23)
+
+
+### Bug Fixes
+
+* **ci:** restore PyPI publisher identity ([#33](https://github.com/buettgen-app/coverart-cli/issues/33)) ([6ab951f](https://github.com/buettgen-app/coverart-cli/commit/6ab951f5128f084ea7621938f2a22dc1d0609987))
+* harden artwork writes and complete album coverage ([#43](https://github.com/buettgen-app/coverart-cli/issues/43)) ([900e3a0](https://github.com/buettgen-app/coverart-cli/commit/900e3a02a4c6c093df52528705e053b5640a1d43))
+
 ## [0.4.3](https://github.com/buettgen-app/coverart-cli/compare/v0.4.1...v0.4.3) (2026-07-13)
 
 
