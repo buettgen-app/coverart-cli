@@ -132,6 +132,27 @@ def test_embed_only_reuses_existing_sidecar_without_network(tmp_path: Path) -> N
         assert [cast(Any, picture).data for picture in pictures] == [local_cover]
 
 
+def test_embed_only_fetches_when_sidecar_misses_quality_threshold(tmp_path: Path) -> None:
+    album_dir = _make_album(tmp_path, "Pink Floyd", "The Wall", tracks=1)
+    (album_dir / "cover.jpg").write_bytes(b"\xff\xd8\xff" + b"x" * 4000)
+    provider_cover = b"\xff\xd8\xff" + b"y" * 12_000
+    provider = FakeProvider(provider_cover)
+
+    stats = run(
+        RunOptions(
+            root=tmp_path,
+            providers=[provider],
+            do_sidecar=False,
+            min_embedded_bytes=10_000,
+        )
+    )
+
+    assert provider.calls == [("Pink Floyd", "The Wall")]
+    assert stats.files_embedded == 1
+    pictures = [frame for frame in ID3(album_dir / "01.mp3").values() if isinstance(frame, APIC)]
+    assert [cast(Any, picture).data for picture in pictures] == [provider_cover]
+
+
 def test_atomic_sidecar_write_replaces_symlink_without_touching_target(tmp_path: Path) -> None:
     library = tmp_path / "library"
     album_dir = _make_album(library, "Pink Floyd", "The Wall")

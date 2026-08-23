@@ -67,12 +67,16 @@ def test_scan_library_skips_hidden(tmp_path: Path) -> None:
     assert scan_library(tmp_path) == []
 
 
-def test_scan_library_finds_albums(tmp_path: Path) -> None:
+def test_scan_library_finds_albums(tmp_path: Path, monkeypatch) -> None:
     a = tmp_path / "Pink Floyd" / "The Wall"
     a.mkdir(parents=True)
     (a / "01.mp3").write_bytes(b"x" * 100)
     (a / "02.mp3").write_bytes(b"x" * 100)
     _make_jpeg(a / "cover.jpg", 4000)
+    monkeypatch.setattr(
+        "coverart_cli.report.has_embedded_cover",
+        lambda _path: (_ for _ in ()).throw(AssertionError("sidecar should short-circuit scans")),
+    )
 
     entries = scan_library(tmp_path, embed_thumbs=True)
     assert len(entries) == 1
