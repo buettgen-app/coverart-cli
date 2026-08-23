@@ -43,11 +43,11 @@ dev = [
 coverart = "coverart_cli.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/WildDragonKing/coverart-cli"
-Repository = "https://github.com/WildDragonKing/coverart-cli"
-Issues = "https://github.com/WildDragonKing/coverart-cli/issues"
-Changelog = "https://github.com/WildDragonKing/coverart-cli/blob/main/CHANGELOG.md"
-Documentation = "https://github.com/WildDragonKing/coverart-cli#readme"
+Homepage = "https://github.com/buettgen-app/coverart-cli"
+Repository = "https://github.com/buettgen-app/coverart-cli"
+Issues = "https://github.com/buettgen-app/coverart-cli/issues"
+Changelog = "https://github.com/buettgen-app/coverart-cli/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/buettgen-app/coverart-cli#readme"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/coverart_cli"]

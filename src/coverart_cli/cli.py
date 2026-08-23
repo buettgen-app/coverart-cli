@@ -18,7 +18,7 @@ from coverart_cli.providers import (
     MusicBrainzProvider,
 )
 
-DEFAULT_UA = f"coverart-cli/{__version__} (+https://github.com/WildDragonKing/coverart-cli)"
+DEFAULT_UA = f"coverart-cli/{__version__} (+https://github.com/buettgen-app/coverart-cli)"
 
 
 def build_parser() -> argparse.ArgumentParser:

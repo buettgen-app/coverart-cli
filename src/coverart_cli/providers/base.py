@@ -28,7 +28,7 @@ def _default_user_agent() -> str:
     # Local import to avoid a circular dep at module import time.
     from coverart_cli import __version__
 
-    return f"coverart-cli/{__version__} (+https://github.com/WildDragonKing/coverart-cli)"
+    return f"coverart-cli/{__version__} (+https://github.com/buettgen-app/coverart-cli)"
 
 
 @dataclass(frozen=True)
