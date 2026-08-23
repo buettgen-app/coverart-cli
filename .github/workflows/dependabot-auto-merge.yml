@@ -1,0 +1,44 @@
+name: Dependabot auto-merge
+
+on:
+  # This workflow never checks out or executes pull-request content. The target
+  # event is required because Dependabot pull_request tokens are read-only.
+  pull_request_target: # zizmor: ignore[dangerous-triggers]
+    types: [opened, synchronize, reopened]
+
+permissions: {}
+
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  enable-auto-merge:
+    name: Enable safe Dependabot auto-merge
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.repository == 'buettgen-app/coverart-cli'
+    runs-on: ubuntu-latest
+    permissions:
+      # GitHub requires both permissions to enable native PR auto-merge.
+      contents: write # zizmor: ignore[excessive-permissions]
+      pull-requests: write # zizmor: ignore[excessive-permissions]
+    steps:
+      - name: Read verified Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@d7267f607e9d3fb96fc2fbe83e0af444713e90b7 # v3
+
+      - name: Enable squash auto-merge for low-risk updates
+        if: >-
+          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          (
+            steps.metadata.outputs.update-type == 'version-update:semver-minor' &&
+            (
+              steps.metadata.outputs.dependency-type == 'direct:development' ||
+              steps.metadata.outputs.package-ecosystem == 'github-actions'
+            )
+          )
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --squash "$PR_URL"
