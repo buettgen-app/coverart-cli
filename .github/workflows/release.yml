@@ -3,10 +3,8 @@ name: Publish release
 # PyPI includes this filename in the Trusted Publisher identity. Do not rename it.
 
 on:
-  release:
-    types: [published]
   repository_dispatch:
-    types: [release-published]
+    types: [release-prepared]
   workflow_dispatch:
     inputs:
       tag:
@@ -19,11 +17,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: publish-${{ github.event.release.tag_name || github.event.client_payload.tag || github.event.inputs.tag }}
+  group: publish-${{ github.event.client_payload.tag || github.event.inputs.tag }}
   cancel-in-progress: false
 
 env:
-  RELEASE_TAG: ${{ github.event.release.tag_name || github.event.client_payload.tag || github.event.inputs.tag }}
+  RELEASE_TAG: ${{ github.event.client_payload.tag || github.event.inputs.tag }}
   RELEASE_SHA: ${{ github.event.client_payload.sha || '' }}
   RELEASE_RUN_ID: ${{ github.event.client_payload.run_id || '' }}
 
@@ -31,6 +29,9 @@ jobs:
   validate:
     name: Validate release
     runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.release.outputs.id }}
+      draft: ${{ steps.release.outputs.draft }}
     steps:
       - name: Validate internal publication dispatch
         if: github.event_name == 'repository_dispatch'
@@ -67,15 +68,27 @@ jobs:
             echo "::error::Manual release recovery must run from main."
             exit 1
           fi
-      - name: Verify published GitHub release
+      - name: Verify GitHub release state
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          draft="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq .draft)"
-          if [ "$draft" != "false" ]; then
-            echo "::error::$RELEASE_TAG is not a published GitHub Release."
+          release="$(
+            gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+              jq -ce --arg tag "$RELEASE_TAG" \
+                '[.[] | select(.tag_name == $tag)] | if length == 1 then .[0] else error("release not found or ambiguous") end'
+          )"
+          draft="$(jq -r .draft <<<"$release")"
+          immutable="$(jq -r '.immutable // false' <<<"$release")"
+
+          if [ "$GITHUB_EVENT_NAME" = "repository_dispatch" ] &&
+             { [ "$draft" != "true" ] || [ "$immutable" != "false" ]; }; then
+            echo "::error::$RELEASE_TAG must be a mutable draft before verified publication."
             exit 1
           fi
+
+          echo "id=$(jq -r .id <<<"$release")" >> "$GITHUB_OUTPUT"
+          echo "draft=$draft" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.RELEASE_TAG }}
@@ -183,9 +196,9 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  attach:
-    name: Attach artifacts to GitHub release
-    needs: build
+  finalize:
+    name: Finalize GitHub release
+    needs: [validate, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -195,13 +208,38 @@ jobs:
           name: dist-${{ env.RELEASE_TAG }}
           path: dist/
       - name: Upload release assets
+        if: needs.validate.outputs.draft == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$RELEASE_TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+      - name: Publish draft release
+        if: needs.validate.outputs.draft == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.validate.outputs.release_id }}
+        run: |
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+            -F draft=false > /dev/null
+      - name: Verify published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_WAS_DRAFT: ${{ needs.validate.outputs.draft }}
+        run: |
+          release="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")"
+          if [ "$(jq -r .draft <<<"$release")" != "false" ]; then
+            echo "::error::$RELEASE_TAG was not published."
+            exit 1
+          fi
+
+          if [ "$RELEASE_WAS_DRAFT" = "true" ] &&
+             [ "$(jq '.assets | length' <<<"$release")" -ne 2 ]; then
+            echo "::error::$RELEASE_TAG does not contain the verified wheel and source distribution."
+            exit 1
+          fi
 
   publish:
     name: Publish to PyPI
-    needs: attach
+    needs: finalize
     runs-on: ubuntu-latest
     permissions:
       id-token: write

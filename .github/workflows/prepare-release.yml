@@ -34,7 +34,7 @@ jobs:
           RELEASE_RUN_ID: ${{ github.run_id }}
         run: |
           jq -n \
-            --arg event_type release-published \
+            --arg event_type release-prepared \
             --arg tag "$RELEASE_TAG" \
             --arg sha "$RELEASE_SHA" \
             --arg run_id "$RELEASE_RUN_ID" \
