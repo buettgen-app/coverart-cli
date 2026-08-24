@@ -2,4 +2,4 @@
 # This version must match [build-system].requires in pyproject.toml.
 hatchling==1.32.0
 # Hatchling requests this dynamically when building editable installations.
-editables==0.5
+editables==0.6
