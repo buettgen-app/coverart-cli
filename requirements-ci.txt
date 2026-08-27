@@ -133,9 +133,9 @@ coverage==7.15.4 \
     --hash=sha256:ffb3c2aacea411cc7e1d27712490c11108e2de1d39019ae32915493a59a8b9ed \
     --hash=sha256:ffb58d7eff5b7f6ecc6fa21d6288ab7f968a212cb67d682c269c09b9eba3b66f
     # via pytest-cov
-editables==0.5 \
-    --hash=sha256:309627d9b5c4adc0e668d8c6fa7bac1ba7c8c5d415c2d27f60f081f8e80d1de2 \
-    --hash=sha256:61e5ffa82629e0d8bfe09bc44a07db3c1ab8ed1ce78a6980732870f19b5e7d4c
+editables==0.6 \
+    --hash=sha256:1163834902381c4613787951c5914800fdf155ae08848a373b8ea5006780977c \
+    --hash=sha256:d70e4698078a1d033e7786d9c64e5be070d058a67c21417024d38a58ac20aa43
     # via -r requirements-build-backend.in
 hatchling==1.32.0 \
     --hash=sha256:0bdbde4a52b06c37e3eca395f85a762bf0ef06fe374fd8ae429dc6be10230f5f \
