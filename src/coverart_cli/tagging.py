@@ -61,12 +61,15 @@ def read_album_meta(path: Path) -> AlbumMeta | None:
 
 
 def find_sidecar(album_dir: Path, *, min_bytes: int = MIN_COVER_BYTES) -> Path | None:
-    """Return existing sidecar in album_dir if it meets the byte threshold."""
+    """Return a supported JPEG/PNG sidecar that meets the byte threshold."""
     for name in SIDECAR_NAMES:
         p = album_dir / name
         try:
-            if p.is_file() and not p.is_symlink() and p.stat().st_size > min_bytes:
-                return p
+            if not p.is_file() or p.is_symlink() or p.stat().st_size <= min_bytes:
+                continue
+            with p.open("rb") as f:
+                if detect_image_mime(f.read(12)) is not None:
+                    return p
         except OSError:
             continue
     return None
@@ -113,17 +116,13 @@ def _ogg_picture_size(audio) -> int:
     return best
 
 
-def detect_image_mime(data: bytes) -> str:
-    """Detect image MIME via magic bytes. Returns image/jpeg as fallback."""
+def detect_image_mime(data: bytes) -> str | None:
+    """Detect a cover MIME supported consistently by all output formats."""
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
     if data.startswith(b"\xff\xd8\xff"):
         return "image/jpeg"
-    if data[:6] in (b"GIF87a", b"GIF89a"):
-        return "image/gif"
-    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return "image/webp"
-    return "image/jpeg"
+    return None
 
 
 def has_embedded_cover(path: Path) -> bool:
@@ -163,7 +162,11 @@ def embed_cover(
     Existing artwork is kept unless ``replace`` is true. Returns True on
     success (or skip-already-has), False on failure.
     """
-    mime = mime or detect_image_mime(cover_bytes)
+    detected_mime = detect_image_mime(cover_bytes)
+    if detected_mime is None or (mime is not None and mime != detected_mime):
+        log.error("unsupported or mismatched cover image for %s", path)
+        return False
+    mime = detected_mime
     suffix = path.suffix.lower()
     try:
         if suffix in MP3_EXTS:
@@ -246,7 +249,11 @@ def _embed_ogg(path: Path, cover: bytes, mime: str, cls, *, replace: bool) -> bo
 def write_sidecar(album_dir: Path, cover_bytes: bytes, *, prefer_png: bool = False) -> Path:
     """Atomically write a cover sidecar without following an existing symlink."""
     mime = detect_image_mime(cover_bytes)
-    ext = ".png" if mime == "image/png" or prefer_png else ".jpg"
+    if mime is None:
+        raise ValueError("unsupported cover image; expected JPEG or PNG")
+    if prefer_png and mime != "image/png":
+        log.debug("PNG preferred but conversion is unavailable; preserving JPEG format")
+    ext = ".png" if mime == "image/png" else ".jpg"
     dest = album_dir / f"cover{ext}"
     temp_path: Path | None = None
     try:

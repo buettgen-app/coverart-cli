@@ -51,6 +51,9 @@ coverart ~/Music --no-embed
 
 Run `coverart --help` for the full flag list.
 
+`--dry-run` never writes files and therefore cannot be combined with
+`--report-html` or `--missing-csv`; generate those outputs in a separate run.
+
 By default, an album is complete only when it has a usable sidecar **and every
 supported audio file has embedded artwork**. If a local sidecar already exists,
 it is reused to fill missing embeds without a network request. Symbolic links to
@@ -96,6 +99,9 @@ arbitrary hosts and non-HTTPS URLs are rejected.
 
 MP3 (ID3 APIC), M4A/M4B/MP4 (covr atom), FLAC (Picture block),
 Ogg Vorbis / Opus (metadata_block_picture).
+
+Cover inputs are accepted as JPEG or PNG. Unrecognized provider payloads and
+local sidecars are ignored instead of being written into tags.
 
 ## Common workflows
 

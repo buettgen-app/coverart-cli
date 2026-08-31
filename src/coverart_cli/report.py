@@ -12,6 +12,7 @@ from pathlib import Path, PureWindowsPath
 from coverart_cli import __version__
 from coverart_cli.tagging import (
     AUDIO_EXTS,
+    detect_image_mime,
     find_sidecar,
     has_embedded_cover,
 )
@@ -63,13 +64,9 @@ def _make_data_uri(path: Path) -> str | None:
     except OSError as e:
         log.debug("cannot read sidecar %s: %s", path, e)
         return None
-    suffix = path.suffix.lower()
-    mime = {
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".png": "image/png",
-        ".webp": "image/webp",
-    }.get(suffix, "image/jpeg")
+    mime = detect_image_mime(data)
+    if mime is None:
+        return None
     b64 = base64.b64encode(data).decode("ascii")
     return f"data:{mime};base64,{b64}"
 

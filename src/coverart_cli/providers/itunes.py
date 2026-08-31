@@ -5,7 +5,12 @@ import json
 import logging
 import urllib.parse
 
-from coverart_cli.providers.base import CoverProvider, ProviderResult, _default_user_agent
+from coverart_cli.providers.base import (
+    CoverProvider,
+    ProviderResult,
+    _catalogue_text_matches,
+    _default_user_agent,
+)
 from coverart_cli.tagging import MIN_COVER_BYTES
 
 log = logging.getLogger(__name__)
@@ -37,15 +42,12 @@ class ITunesProvider(CoverProvider):
         except json.JSONDecodeError:
             return None
 
-        artist_l = artist.lower()
-        album_l = album.lower()
         for hit in data.get("results", []):
-            hit_artist = (hit.get("artistName") or "").lower()
-            hit_album = (hit.get("collectionName") or "").lower()
-            # accept the result if either field matches strongly
-            artist_match = artist_l in hit_artist or hit_artist in artist_l
-            album_match = album_l in hit_album or hit_album in album_l
-            if not artist_match and not album_match:
+            if not isinstance(hit, dict):
+                continue
+            artist_match = _catalogue_text_matches(artist, hit.get("artistName"))
+            album_match = _catalogue_text_matches(album, hit.get("collectionName"))
+            if not (artist_match and album_match):
                 continue
             url = hit.get("artworkUrl100")
             if not url:

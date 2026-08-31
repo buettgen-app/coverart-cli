@@ -5,7 +5,12 @@ import json
 import logging
 import urllib.parse
 
-from coverart_cli.providers.base import CoverProvider, ProviderResult, _default_user_agent
+from coverart_cli.providers.base import (
+    CoverProvider,
+    ProviderResult,
+    _catalogue_text_matches,
+    _default_user_agent,
+)
 from coverart_cli.tagging import MIN_COVER_BYTES
 
 log = logging.getLogger(__name__)
@@ -34,6 +39,15 @@ class DeezerProvider(CoverProvider):
             return None
 
         for hit in data.get("data", []):
+            if not isinstance(hit, dict):
+                continue
+            hit_artist = hit.get("artist")
+            artist_name = hit_artist.get("name") if isinstance(hit_artist, dict) else None
+            if not (
+                _catalogue_text_matches(artist, artist_name)
+                and _catalogue_text_matches(album, hit.get("title"))
+            ):
+                continue
             img_url = hit.get("cover_xl") or hit.get("cover_big")
             if not img_url:
                 continue

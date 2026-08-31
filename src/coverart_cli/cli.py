@@ -175,6 +175,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.lastfm_key is None:
         args.lastfm_key = os.environ.get("LASTFM_API_KEY") or cfg.get("lastfm_key")
 
+    if args.dry_run and (args.report_html or args.missing_csv):
+        print(
+            "error: --dry-run cannot be combined with --report-html or --missing-csv",
+            file=sys.stderr,
+        )
+        return 2
+
     if args.report_only:
         return _do_report_only(args)
 
