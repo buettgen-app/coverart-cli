@@ -83,16 +83,24 @@ jobs:
           fi
 
           release="$(
-            gh release view "$RELEASE_TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --json databaseId,isDraft,isImmutable,tagName,targetCommitish \
-              --jq '{
-                id: .databaseId,
-                draft: .isDraft,
-                immutable: .isImmutable,
-                tag_name: .tagName,
-                target_commitish: .targetCommitish
-              }'
+            gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+              jq -s --arg tag "$RELEASE_TAG" '
+                [.[][] | select(.tag_name == $tag)] |
+                if length == 1 then
+                  .[0] | {
+                    id: .id,
+                    draft: .draft,
+                    immutable: .immutable,
+                    tag_name: .tag_name,
+                    target_commitish: .target_commitish
+                  }
+                elif length == 0 then
+                  error("release not found")
+                else
+                  error("multiple releases found for tag")
+                end
+              '
           )"
           draft="$(jq -r .draft <<<"$release")"
           immutable="$(jq -r .immutable <<<"$release")"
