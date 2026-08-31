@@ -846,9 +846,7 @@ def test_release_network_calls_and_jobs_have_hard_timeouts() -> None:
     helper = _shell_function(verify, "pypi_http_status")
     poll = _shell_function(verify, "pypi_poll_json")
     upload = _step_run("Revalidate and upload draft assets by release ID")
-    sleep_lines = [
-        line.strip() for line in poll.splitlines() if line.strip().startswith("sleep ")
-    ]
+    sleep_lines = [line.strip() for line in poll.splitlines() if line.strip().startswith("sleep ")]
 
     assert "--connect-timeout 10 --max-time 15" in helper
     assert "--connect-timeout 10 --max-time 120" in upload
