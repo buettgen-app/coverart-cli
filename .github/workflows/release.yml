@@ -39,6 +39,12 @@ env:
     else
       error("multiple releases found for tag")
     end
+  DRAFT_RELEASE_JQ: >-
+    (.id | tostring) == $id and
+    .draft == true and
+    .immutable == false and
+    .tag_name == $tag and
+    .target_commitish == $sha
 
 jobs:
   validate:
@@ -51,6 +57,7 @@ jobs:
       release_id: ${{ steps.release.outputs.id }}
       draft: ${{ steps.release.outputs.draft }}
       release_ref: ${{ steps.release.outputs.ref }}
+      release_sha: ${{ steps.source.outputs.sha }}
     steps:
       - name: Validate internal publication dispatch
         if: github.event_name == 'repository_dispatch'
@@ -148,6 +155,9 @@ jobs:
           ref: ${{ steps.release.outputs.ref }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Bind release source commit
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Verify dispatched release commit
         if: github.event_name == 'repository_dispatch'
         run: |
@@ -322,11 +332,69 @@ jobs:
         with:
           name: dist-${{ env.RELEASE_TAG }}
           path: dist/
-      - name: Upload release assets
+      - name: Revalidate and upload draft assets by release ID
         if: needs.validate.outputs.draft == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$RELEASE_TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+          RELEASE_ID: ${{ needs.validate.outputs.release_id }}
+          EXPECTED_RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
+        run: |
+          if [[ ! "$RELEASE_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::Release ID is not numeric."
+            exit 1
+          fi
+
+          for asset_path in dist/*; do
+            asset_name="$(basename "$asset_path")"
+            local_digest="sha256:$(sha256sum "$asset_path" | cut -d' ' -f1)"
+            release="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID")"
+            if ! jq -e \
+              --arg id "$RELEASE_ID" \
+              --arg tag "$RELEASE_TAG" \
+              --arg sha "$EXPECTED_RELEASE_SHA" \
+              "$DRAFT_RELEASE_JQ" <<<"$release" >/dev/null; then
+              echo "::error::$RELEASE_TAG changed before asset upload."
+              exit 1
+            fi
+
+            existing="$(
+              jq -c --arg name "$asset_name" \
+                '[.assets[] | select(.name == $name)]' <<<"$release"
+            )"
+            if [ "$(jq 'length' <<<"$existing")" -gt 1 ]; then
+              echo "::error::$RELEASE_TAG contains duplicate assets named $asset_name."
+              exit 1
+            fi
+            if [ "$(jq 'length' <<<"$existing")" -eq 1 ]; then
+              if [ "$(jq -r '.[0].digest' <<<"$existing")" = "$local_digest" ]; then
+                continue
+              fi
+              existing_id="$(jq -r '.[0].id' <<<"$existing")"
+              if [[ ! "$existing_id" =~ ^[0-9]+$ ]]; then
+                echo "::error::Existing release asset ID is not numeric."
+                exit 1
+              fi
+              gh api --method DELETE \
+                "repos/$GITHUB_REPOSITORY/releases/assets/$existing_id"
+            fi
+
+            encoded_name="$(jq -nr --arg name "$asset_name" '$name | @uri')"
+            uploaded="$(
+              curl --fail-with-body --silent --show-error \
+                --request POST \
+                --header "Accept: application/vnd.github+json" \
+                --header "Authorization: Bearer $GH_TOKEN" \
+                --header "Content-Type: application/octet-stream" \
+                --header "X-GitHub-Api-Version: 2022-11-28" \
+                --data-binary "@$asset_path" \
+                "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$encoded_name"
+            )"
+            if ! jq -e --arg name "$asset_name" \
+              '.name == $name and .state == "uploaded"' <<<"$uploaded" >/dev/null; then
+              echo "::error::GitHub did not accept release asset $asset_name."
+              exit 1
+            fi
+          done
       - name: Validate draft release assets
         if: needs.validate.outputs.draft == 'true'
         env:
@@ -357,27 +425,56 @@ jobs:
               exit 1
             fi
           done <<<"$expected_assets"
-      - name: Publish draft release
+      - name: Revalidate and publish exact draft release
         if: needs.validate.outputs.draft == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_ID: ${{ needs.validate.outputs.release_id }}
+          EXPECTED_RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
         run: |
-          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
-            -F draft=false > /dev/null
+          release="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID")"
+          if ! jq -e \
+            --arg id "$RELEASE_ID" \
+            --arg tag "$RELEASE_TAG" \
+            --arg sha "$EXPECTED_RELEASE_SHA" \
+            "$DRAFT_RELEASE_JQ" <<<"$release" >/dev/null; then
+            echo "::error::$RELEASE_TAG changed before publication; leaving it unpublished."
+            exit 1
+          fi
+
+          published="$(
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+              -f tag_name="$RELEASE_TAG" \
+              -f target_commitish="$EXPECTED_RELEASE_SHA" \
+              -F draft=false
+          )"
+          if ! jq -e \
+            --arg id "$RELEASE_ID" \
+            --arg tag "$RELEASE_TAG" \
+            --arg sha "$EXPECTED_RELEASE_SHA" \
+            '(.id | tostring) == $id and
+             .draft == false and
+             .tag_name == $tag and
+             .target_commitish == $sha' <<<"$published" >/dev/null; then
+            echo "::error::GitHub did not publish the expected release state."
+            exit 1
+          fi
       - name: Verify published release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_WAS_DRAFT: ${{ needs.validate.outputs.draft }}
+          RELEASE_ID: ${{ needs.validate.outputs.release_id }}
+          EXPECTED_RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
         run: |
           release="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")"
-          if [ "$(jq -r .draft <<<"$release")" != "false" ]; then
-            echo "::error::$RELEASE_TAG was not published."
-            exit 1
-          fi
-
-          if [ "$(jq -r .immutable <<<"$release")" != "true" ]; then
-            echo "::error::$RELEASE_TAG is not immutable; refusing PyPI publication."
+          if ! jq -e \
+            --arg id "$RELEASE_ID" \
+            --arg tag "$RELEASE_TAG" \
+            '(.id | tostring) == $id and
+             .draft == false and
+             .immutable == true and
+             .tag_name == $tag' <<<"$release" >/dev/null; then
+            echo "::error::$RELEASE_TAG is not the expected immutable published release."
             exit 1
           fi
 
@@ -391,6 +488,14 @@ jobs:
           for asset in dist/*; do
             gh release verify-asset "$RELEASE_TAG" "$asset" --repo "$GITHUB_REPOSITORY"
           done
+
+          published_sha="$(
+            gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha
+          )"
+          if [ "$published_sha" != "$EXPECTED_RELEASE_SHA" ]; then
+            echo "::error::$RELEASE_TAG resolves to $published_sha, expected $EXPECTED_RELEASE_SHA; refusing PyPI publication."
+            exit 1
+          fi
 
   publish:
     name: Publish to PyPI
