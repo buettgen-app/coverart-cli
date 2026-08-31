@@ -174,9 +174,8 @@ Commits to `main` follow [Conventional Commits](https://www.conventionalcommits.
 | ------------------------------- | -------------------------- |
 | `feat: …`                       | minor bump (0.3.0 → 0.4.0) |
 | `fix: …`                        | patch bump (0.3.0 → 0.3.1) |
-| `feat!: …` / `BREAKING CHANGE:` | major bump (0.3.0 → 1.0.0) |
-| `perf: …`                       | patch bump (0.3.0 → 0.3.1) |
-| `docs:`, `refactor:`            | changelog entry, no bump   |
+| `feat!: …` / `BREAKING CHANGE:` | minor before 1.0; major from 1.0 |
+| `perf:`, `docs:`, `refactor:` | patch bump (0.3.0 → 0.3.1) |
 | `chore:`, `ci:`, `test:`        | hidden in changelog        |
 
 The `Prepare release` workflow uses the repository-scoped `GITHUB_TOKEN` to
@@ -207,10 +206,12 @@ publish identity even though Release Please itself runs in
 `prepare-release.yml`. Do not create release tags or upload distributions by
 hand. A failed publish can be retried without introducing a second release
 path: the workflow accepts only the exact mutable draft or immutable release,
-reuses matching GitHub and PyPI artifacts by SHA-256, uploads only missing
-files, and verifies PyPI provenance. The same workflow can be run manually
-from `main` for a named draft or published version; recovery refuses product
-changes beyond the explicit release repair. Pull requests and Release PRs
+rebuilds wheel and sdist deterministically from the bound source and requires
+their SHA-256 values to match any immutable GitHub assets, uploads only missing
+PyPI files, and verifies provenance. The same workflow can be run manually
+from `main` for a named draft or a published version that already satisfies
+the protected annotated-tag contract; recovery refuses product changes beyond
+the explicit release repair. Pull requests and Release PRs
 remain subject to branch protection and their configured merge gates.
 GitHub Actions changes are gated by the repository's Zizmor security lint;
 third-party AI review remains advisory so availability limits cannot block

@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 RELEASE_WORKFLOW = Path(__file__).parents[1] / ".github" / "workflows" / "release.yml"
+CI_WORKFLOW = Path(__file__).parents[1] / ".github" / "workflows" / "ci.yml"
 RELEASE_ID = "379808429"
 RELEASE_TAG = "v0.6.1"
 RELEASE_SHA = "8c2e688cad72ac433fb5d91c768dbe677a6398dc"
@@ -301,6 +302,68 @@ def _shell_function(script: str, name: str) -> str:
     return "\n".join(lines[start : end + 1])
 
 
+def _run_dispatch_release_ref(
+    release: dict[str, object],
+    tag_sha: str,
+) -> subprocess.CompletedProcess[str]:
+    verify = _step_run("Verify GitHub release state")
+    helper = _shell_function(verify, "select_dispatch_release_ref")
+    script = f"""{helper}
+select_dispatch_release_ref "$RELEASE_JSON" "$TAG_SHA"
+"""
+    env = {
+        **os.environ,
+        "DISPATCH_RELEASE_JQ": _folded_env_value("DISPATCH_RELEASE_JQ"),
+        "RELEASE_JSON": json.dumps(release),
+        "RELEASE_SHA": RELEASE_SHA,
+        "RELEASE_TAG": RELEASE_TAG,
+        "TAG_SHA": tag_sha,
+    }
+    return subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", script],
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _run_immutable_policy(
+    tmp_path: Path,
+    settings: dict[str, object],
+    *,
+    token: str = "settings-token",
+    gh_exit: int = 0,
+) -> subprocess.CompletedProcess[str]:
+    finalize = _step_run("Bind tag and publish exact verified draft release")
+    helper = _shell_function(finalize, "verify_immutable_release_policy")
+    script = f"""{helper}
+gh() {{
+  printf '%s' "$GH_TOKEN" > seen-token
+  printf '%s' "$*" > seen-args
+  printf '%s' "$SETTINGS_JSON"
+  return "$GH_EXIT"
+}}
+verify_immutable_release_policy
+"""
+    env = {
+        **os.environ,
+        "GH_EXIT": str(gh_exit),
+        "GITHUB_REPOSITORY": "buettgen-app/coverart-cli",
+        "IMMUTABLE_RELEASES_JQ": _folded_env_value("IMMUTABLE_RELEASES_JQ"),
+        "RELEASE_SETTINGS_TOKEN": token,
+        "SETTINGS_JSON": json.dumps(settings),
+    }
+    return subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", script],
+        cwd=tmp_path,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
 def _assert_finalize_order(script: str) -> None:
     publication = script.index('published="$(')
     before = script[:publication]
@@ -391,6 +454,40 @@ verify_annotated_release_tag
     )
 
 
+def _run_validate_tag_resolver(
+    refs: list[Any],
+    tag_object: dict[str, object],
+) -> subprocess.CompletedProcess[str]:
+    verify = _step_run("Verify GitHub release state")
+    helper = _shell_function(verify, "resolve_annotated_release_tag")
+    script = f"""set -euo pipefail
+{helper}
+gh() {{
+  case "$*" in
+    *matching-refs*) printf '%s\n' "$TAG_REFS" ;;
+    *git/tags/*) printf '%s\n' "$TAG_OBJECT" ;;
+    *) return 64 ;;
+  esac
+}}
+resolve_annotated_release_tag
+"""
+    env = {
+        **os.environ,
+        "TAG_REFS": json.dumps(refs),
+        "TAG_OBJECT": json.dumps(tag_object),
+        "EXACT_TAG_JQ": _folded_env_value("EXACT_TAG_JQ"),
+        "GITHUB_REPOSITORY": "buettgen-app/coverart-cli",
+        "RELEASE_TAG": RELEASE_TAG,
+    }
+    return subprocess.run(
+        ["bash", "-c", script],
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
 def test_draft_release_lookup_uses_authenticated_paginated_collection() -> None:
     """Draft lookup must not require the tag ref that publication creates later."""
     workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
@@ -466,6 +563,70 @@ def test_dispatch_rejects_wrong_identity_or_unsafe_state(mutation: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("draft", "immutable", "tag_sha", "accepted"),
+    [
+        (True, False, "", True),
+        (True, False, RELEASE_SHA, True),
+        (True, False, BOUND_SHA, False),
+        (False, True, RELEASE_SHA, True),
+        (False, True, "", False),
+        (False, True, BOUND_SHA, False),
+    ],
+)
+def test_exact_dispatch_branch_selects_only_safe_release_ref(
+    draft: bool,
+    immutable: bool,
+    tag_sha: str,
+    accepted: bool,
+) -> None:
+    release: dict[str, object] = {
+        "prerelease": False,
+        "tag_name": RELEASE_TAG,
+        "target_commitish": RELEASE_SHA,
+        "draft": draft,
+        "immutable": immutable,
+    }
+
+    result = _run_dispatch_release_ref(release, tag_sha)
+
+    assert (result.returncode == 0) is accepted
+    if accepted:
+        assert result.stdout == f"{RELEASE_SHA}\n"
+
+
+def test_validate_tag_resolver_rejects_lightweight_and_mutated_tags() -> None:
+    tag_object_sha = "c" * 40
+    exact = {
+        "ref": f"refs/tags/{RELEASE_TAG}",
+        "object": {"type": "tag", "sha": tag_object_sha},
+    }
+    tag_object: dict[str, object] = {
+        "sha": tag_object_sha,
+        "tag": RELEASE_TAG,
+        "message": f"Release {RELEASE_TAG}",
+        "object": {"type": "commit", "sha": RELEASE_SHA},
+    }
+
+    missing = _run_validate_tag_resolver([], tag_object)
+    assert missing.returncode == 0, missing.stderr
+    assert missing.stdout == ""
+
+    accepted = _run_validate_tag_resolver([exact], tag_object)
+    assert accepted.returncode == 0, accepted.stderr
+    assert accepted.stdout == f"{RELEASE_SHA}\n"
+
+    lightweight = {
+        "ref": f"refs/tags/{RELEASE_TAG}",
+        "object": {"type": "commit", "sha": RELEASE_SHA},
+    }
+    assert _run_validate_tag_resolver([lightweight], tag_object).returncode != 0
+
+    mutated = copy.deepcopy(tag_object)
+    mutated["message"] = "unexpected"
+    assert _run_validate_tag_resolver([exact], mutated).returncode != 0
+
+
+@pytest.mark.parametrize(
     "settings",
     [
         {"enabled": False, "enforced_by_owner": False},
@@ -483,12 +644,55 @@ def test_disabled_or_schema_drifted_immutable_release_setting_is_rejected(
 
 def test_enabled_immutable_release_setting_is_accepted() -> None:
     for enforced_by_owner in (False, True):
-        settings = {
+        settings: dict[str, object] = {
             "enabled": True,
             "enforced_by_owner": enforced_by_owner,
         }
         result = _run_immutable_release_state(settings)
         assert result.returncode == 0, result.stderr
+
+
+def test_immutable_policy_uses_scoped_token_and_exact_endpoint(
+    tmp_path: Path,
+) -> None:
+    result = _run_immutable_policy(
+        tmp_path,
+        {"enabled": True, "enforced_by_owner": False},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "seen-token").read_text() == "settings-token"
+    args = (tmp_path / "seen-args").read_text()
+    assert "--method GET" in args
+    assert "X-GitHub-Api-Version: 2026-03-10" in args
+    assert "repos/buettgen-app/coverart-cli/immutable-releases" in args
+
+
+@pytest.mark.parametrize(
+    ("settings", "token", "gh_exit"),
+    [
+        ({"enabled": True, "enforced_by_owner": False}, "", 0),
+        ({"enabled": False, "enforced_by_owner": False}, "settings-token", 0),
+        ({"enabled": True}, "settings-token", 0),
+        ({"enabled": True, "enforced_by_owner": False}, "settings-token", 22),
+    ],
+)
+def test_immutable_policy_fails_closed(
+    tmp_path: Path,
+    settings: dict[str, object],
+    token: str,
+    gh_exit: int,
+) -> None:
+    result = _run_immutable_policy(
+        tmp_path,
+        settings,
+        token=token,
+        gh_exit=gh_exit,
+    )
+
+    assert result.returncode != 0
+    if not token:
+        assert not (tmp_path / "seen-token").exists()
 
 
 def test_draft_is_revalidated_and_published_at_the_bound_commit() -> None:
@@ -502,6 +706,8 @@ def test_draft_is_revalidated_and_published_at_the_bound_commit() -> None:
     assert "Release recovery includes changes outside the explicit release repair." in workflow
     assert "name: Resolve live release phase" in workflow
     assert '"$DISPATCH_RELEASE_JQ" <<<"$release"' in workflow
+    assert workflow.count("select_dispatch_release_ref") == 2
+    assert workflow.count("resolve_annotated_release_tag") == 2
     assert "Published dispatch recovery requires the exact annotated release tag." in workflow
     assert "RELEASE_SETTINGS_TOKEN: ${{ secrets.RELEASE_SETTINGS_TOKEN }}" in workflow
     assert '"repos/$GITHUB_REPOSITORY/immutable-releases"' in workflow
@@ -528,7 +734,6 @@ def test_draft_is_revalidated_and_published_at_the_bound_commit() -> None:
     assert workflow.count('gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main"') == 3
     assert workflow.count("git/matching-refs/tags/$RELEASE_TAG") >= 4
     assert '"$EXACT_TAG_JQ" <<<"$refs"' in workflow
-    assert "refusing PyPI publication" in workflow
     assert "Plan idempotent PyPI upload" in workflow
     assert "packages-dir: pypi-dist/" in workflow
     assert "skip-existing" not in workflow
@@ -601,6 +806,42 @@ fi
     assert (tmp_path / "calls").read_text() == calls
 
 
+def test_immutable_recovery_matches_fresh_reproducible_artifacts() -> None:
+    workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    build_marker = "      - name: Build wheel and source distribution reproducibly\n"
+    build_start = workflow.index(build_marker)
+    build_end = workflow.index("      - name:", build_start + len(build_marker))
+    build_block = workflow[build_start:build_end]
+    download = _step_run("Download immutable release assets for recovery")
+    compare = _step_run(
+        "Match immutable release assets to a fresh deterministic build"
+    )
+
+    assert "if:" not in build_block
+    assert 'SOURCE_DATE_EPOCH: "1580601600"' in build_block
+    assert "python -m build --no-isolation" in build_block
+    assert "--dir released-dist" in download
+    assert "--dir dist" not in download
+    assert 'fresh = manifest("dist")' in compare
+    assert 'released = manifest("released-dist")' in compare
+    assert "hashlib.sha256" in compare
+    assert "len(fresh) != 2 or fresh != released" in compare
+
+
+def test_ci_proves_wheel_and_sdist_reproducibility() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "reproducible-artifacts:" in workflow
+    assert "name: Reproducible wheel and sdist" in workflow
+    assert 'SOURCE_DATE_EPOCH: "1580601600"' in workflow
+    assert "python -m build --no-isolation --outdir /tmp/repro-one" in workflow
+    assert "python -m build --no-isolation --outdir /tmp/repro-two" in workflow
+    assert 'first = manifest("/tmp/repro-one")' in workflow
+    assert 'second = manifest("/tmp/repro-two")' in workflow
+    assert "hashlib.sha256" in workflow
+    assert "len(first) != 2 or first != second" in workflow
+
+
 def test_release_network_calls_and_jobs_have_hard_timeouts() -> None:
     workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
     helper = _shell_function(
@@ -609,9 +850,62 @@ def test_release_network_calls_and_jobs_have_hard_timeouts() -> None:
     )
     upload = _step_run("Revalidate and upload draft assets by release ID")
 
-    assert "--connect-timeout 10 --max-time 60" in helper
+    assert "--connect-timeout 10 --max-time 15" in helper
     assert "--connect-timeout 10 --max-time 120" in upload
     assert workflow.count("timeout-minutes: 30") == 6
+    assert 3 * 12 * (15 + 5) < 30 * 60
+
+
+@pytest.mark.parametrize(
+    ("sequence", "expected", "calls"),
+    [
+        ("200", "success\n", "1"),
+        ("000 503 200", "success\n", "3"),
+        ("503 503 503 503 503 503 503 503 503 503 503 503", "failure\n", "12"),
+    ],
+)
+def test_pypi_poll_retries_and_exhausts_exactly(
+    tmp_path: Path,
+    sequence: str,
+    expected: str,
+    calls: str,
+) -> None:
+    verify = _step_run("Verify PyPI files and attestations")
+    poll = _shell_function(verify, "pypi_poll_json")
+    script = f"""set -euo pipefail
+{poll}
+printf 0 > calls
+sequence=({sequence})
+pypi_http_status() {{
+  local n
+  n="$(cat calls)"
+  n=$((n + 1))
+  printf '%s' "$n" > calls
+  printf '%s\n' "${{sequence[$((n - 1))]}}"
+}}
+predicate() {{
+  return 0
+}}
+sleep() {{
+  :
+}}
+if pypi_poll_json response predicate https://example.invalid; then
+  printf 'success\n'
+else
+  printf 'failure\n'
+fi
+"""
+    result = subprocess.run(
+        ["bash", "-c", script],
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == expected
+    assert (tmp_path / "calls").read_text() == calls
 
 
 def test_every_pypi_lookup_uses_the_tested_status_helper() -> None:
@@ -622,9 +916,14 @@ def test_every_pypi_lookup_uses_the_tested_status_helper() -> None:
 
     assert _shell_function(plan, "pypi_http_status") == tested_helper
     assert _shell_function(cryptographic, "pypi_http_status") == tested_helper
+    assert _shell_function(verify, "pypi_poll_json") == _shell_function(
+        cryptographic, "pypi_poll_json"
+    )
     assert plan.count('pypi_http_status "$') == 1
-    assert verify.count('pypi_http_status "$') == 2
-    assert cryptographic.count('pypi_http_status "$') == 2
+    assert verify.count('pypi_http_status "$') == 1
+    assert cryptographic.count('pypi_http_status "$') == 1
+    assert verify.count("pypi_poll_json") == 3
+    assert cryptographic.count("pypi_poll_json") == 3
 
 
 def test_finalize_revalidates_live_state_and_protected_tag_before_publish() -> None:
