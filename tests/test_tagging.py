@@ -19,19 +19,19 @@ import pytest
 from mutagen.id3 import APIC, ID3
 from mutagen.mp4 import MP4, MP4Cover
 
-from coverart_cli.tagging import (
-    MAX_COVER_BYTES,
-    AlbumMeta,
-    detect_image_mime,
-    embed_cover,
-    existing_embedded_size,
-    find_sidecar,
-    read_album_meta,
-    supports_secure_sidecar_writes,
-    write_sidecar,
-)
+from coverart_cli import tagging
 
 from .image_fixtures import VALID_JPEG, VALID_PNG  # pyrefly: ignore [missing-import]
+
+MAX_COVER_BYTES = tagging.MAX_COVER_BYTES
+AlbumMeta = tagging.AlbumMeta
+detect_image_mime = tagging.detect_image_mime
+embed_cover = tagging.embed_cover
+existing_embedded_size = tagging.existing_embedded_size
+find_sidecar = tagging.find_sidecar
+read_album_meta = tagging.read_album_meta
+supports_secure_sidecar_writes = tagging.supports_secure_sidecar_writes
+write_sidecar = tagging.write_sidecar
 
 
 def test_album_meta_str() -> None:
@@ -105,13 +105,11 @@ def test_find_sidecar_rejects_oversized_image(tmp_path: Path) -> None:
 
 
 def test_write_sidecar_rejects_replaced_album_directory(tmp_path: Path) -> None:
-    from coverart_cli.tagging import file_identity
-
     album = tmp_path / "album"
     outside = tmp_path / "outside"
     album.mkdir()
     outside.mkdir()
-    expected = file_identity(album, directory=True)
+    expected = tagging.file_identity(album, directory=True)
     album.rename(tmp_path / "original")
     album.symlink_to(outside, target_is_directory=True)
 
@@ -181,8 +179,6 @@ def test_embed_cover_temp_open_failure_does_not_leak_fds(
     proc_fds = Path("/proc/self/fd")
     if not proc_fds.is_dir():
         pytest.skip("fd accounting requires procfs")
-    import coverart_cli.tagging as tagging
-
     track = tmp_path / "track.mp3"
     ID3().save(track)
     original_bytes = track.read_bytes()
@@ -219,8 +215,6 @@ def test_embed_cover_identity_mismatch_does_not_double_close_fd(tmp_path: Path) 
 def test_embed_cover_falls_back_when_kernel_copy_is_unsupported(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import coverart_cli.tagging as tagging
-
     if not hasattr(tagging.os, "copy_file_range"):
         pytest.skip("copy_file_range is unavailable")
     track = tmp_path / "track.mp3"
@@ -243,8 +237,6 @@ def test_embed_cover_rejects_same_inode_change_after_copy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from mutagen.id3 import TXXX
-
-    import coverart_cli.tagging as tagging
 
     track = tmp_path / "track.mp3"
     ID3().save(track)
@@ -273,7 +265,8 @@ def test_embed_cover_preserves_macos_extended_attributes(tmp_path: Path) -> None
     time.sleep(2.0)
 
     assert embed_cover(track, VALID_JPEG)
-    assert subprocess.check_output(["xattr", "-p", attribute, str(track)]).strip() == b"preserve"
+    attribute_value = subprocess.check_output(["xattr", "-p", attribute, str(track)]).strip()
+    assert attribute_value == b"preserve"
     assert cast(Any, track.stat()).st_birthtime == pytest.approx(birthtime, abs=0.1)
 
 
@@ -436,8 +429,6 @@ def test_m4a_replaces_mismatched_existing_cover_flag(tmp_path: Path) -> None:
 def test_sidecar_fallback_fails_closed_without_directory_handles(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import coverart_cli.tagging as tagging
-
     monkeypatch.setattr(tagging.os, "supports_dir_fd", set())
     with pytest.raises(OSError, match="unsupported"):
         write_sidecar(tmp_path, VALID_JPEG)
