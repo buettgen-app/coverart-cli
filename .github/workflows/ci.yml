@@ -160,3 +160,26 @@ jobs:
         run: |
           /tmp/smoke-venv/bin/coverart /tmp/fixture-lib --report-only --report-html /tmp/report.html
           test -s /tmp/report.html && echo "✓ report written ($(wc -c </tmp/report.html) bytes)"
+
+
+  generate-attestation-lock:
+    name: Generate attestation verifier lock
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e05f8b92243092dafc2afef48b0dd5f584 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.7"
+      - name: Generate lock
+        run: |
+          uv pip compile requirements-attestation.in --universal --generate-hashes --output-file requirements-attestation.txt
+          echo LOCK_BEGIN
+          base64 -w0 requirements-attestation.txt
+          echo
+          echo LOCK_END
