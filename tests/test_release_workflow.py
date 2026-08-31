@@ -430,13 +430,13 @@ def test_partial_and_complete_matching_pypi_states_are_accepted() -> None:
         {"name": "coverart_cli-0.6.1-py3-none-any.whl", "digest": "aaa"},
         {"name": "coverart_cli-0.6.1.tar.gz", "digest": "bbb"},
     ]
-    partial = {
+    partial: dict[str, object] = {
         "info": {"version": "0.6.1"},
         "urls": [
             {"filename": assets[0]["name"], "digests": {"sha256": "aaa"}},
         ],
     }
-    complete = {
+    complete: dict[str, object] = {
         "info": {"version": "0.6.1"},
         "urls": [
             {"filename": asset["name"], "digests": {"sha256": asset["digest"]}}
@@ -468,14 +468,14 @@ def test_poisoned_or_ambiguous_pypi_state_is_rejected(
         {"name": "coverart_cli-0.6.1-py3-none-any.whl", "digest": "aaa"},
         {"name": "coverart_cli-0.6.1.tar.gz", "digest": "bbb"},
     ]
-    release = {"info": {"version": "0.6.1"}, "urls": urls}
+    release: dict[str, object] = {"info": {"version": "0.6.1"}, "urls": urls}
 
     assert _run_pypi_state(release, assets, complete=False).returncode != 0
 
 
 def test_wrong_pypi_version_is_rejected() -> None:
     assets = [{"name": "coverart_cli-0.6.1.tar.gz", "digest": "bbb"}]
-    release = {"info": {"version": "0.6.2"}, "urls": []}
+    release: dict[str, object] = {"info": {"version": "0.6.2"}, "urls": []}
 
     assert _run_pypi_state(release, assets, complete=False).returncode != 0
 
