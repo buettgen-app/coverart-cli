@@ -179,14 +179,13 @@ Commits to `main` follow [Conventional Commits](https://www.conventionalcommits.
 | `chore:`, `ci:`, `test:`        | hidden in changelog        |
 
 The `Prepare release` workflow uses the repository-scoped `GITHUB_TOKEN` to
-open and update one rolling Release PR. Merging that PR creates the version tag
-and publishes the GitHub Release. Because GitHub intentionally suppresses the
-release event created by its workflow token, the same trusted run sends an
-authenticated repository dispatch to the isolated `Publish release` workflow.
-That workflow verifies the source workflow run, release tag, exact commit,
-package metadata, and changelog. It builds one wheel and source distribution,
-attaches those exact files to the GitHub Release, and publishes them to PyPI
-with OIDC attestations.
+open and update one rolling Release PR. Merging that PR creates a mutable draft
+release and sends an authenticated repository dispatch to the isolated
+`Publish release` workflow. That workflow verifies the source run, exact
+commit, package metadata, changelog, and draft state before it creates the
+lightweight version tag and publishes an immutable GitHub Release. It builds
+one wheel and source distribution, attaches those exact files to the release,
+and publishes them to PyPI with OIDC attestations.
 
 No release App, private key, or personal access token is required. In
 `Settings → Actions → General → Workflow permissions`, enable **Allow GitHub
@@ -198,14 +197,13 @@ The PyPI Trusted Publisher must be configured for GitHub owner `buettgen-app`,
 repository `coverart-cli`, workflow `release.yml`, and environment `pypi`. That filename is the stable
 publish identity even though Release Please itself runs in
 `prepare-release.yml`. Do not create release tags or upload distributions by
-hand. A failed publish can be rerun from the same GitHub Actions run without
-introducing a second release path. Historical releases can be recovered by
-manually running the same workflow from `main`; it accepts only an existing
-published release tag and applies every normal validation and test gate. Pull
-requests and Release PRs require an explicit merge after branch protection
-passes. Verified low-risk Dependabot patch updates, development-only minor
-updates, and GitHub Actions minor updates use GitHub's native auto-merge; major
-and production minor updates remain manual.
+hand. A failed publish can be retried without introducing a second release
+path: the workflow accepts only the exact mutable draft or immutable release,
+reuses matching GitHub and PyPI artifacts by SHA-256, uploads only missing
+files, and verifies PyPI provenance. The same workflow can be run manually
+from `main` for a named draft or published version; recovery refuses product
+changes beyond the explicit release repair. Pull requests and Release PRs
+remain subject to branch protection and their configured merge gates.
 GitHub Actions changes are gated by the repository's Zizmor security lint;
 third-party AI review remains advisory so availability limits cannot block
 security updates.
