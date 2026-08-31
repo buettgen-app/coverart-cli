@@ -175,7 +175,7 @@ def _run_pypi_state(
 
 
 def _run_provenance_state(
-    provenance: dict[str, object],
+    provenance: dict[str, Any],
     *,
     name: str = ATTESTED_NAME,
     digest: str = ATTESTED_DIGEST,
@@ -316,7 +316,7 @@ def _run_ruleset_state(
 
 
 def _run_annotated_tag_guard(
-    refs: list[object],
+    refs: list[Any],
     tag_object: dict[str, object],
 ) -> subprocess.CompletedProcess[str]:
     finalize = _step_run("Bind tag and publish exact verified draft release")
