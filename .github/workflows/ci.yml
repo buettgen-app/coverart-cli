@@ -35,9 +35,10 @@ jobs:
         run: ruff check .
       - name: Type check
         run: pyrefly check
-      - name: Verify real-format test capability
+      - name: Install FFmpeg test oracle
         run: |
-          command -v ffmpeg
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
           ffmpeg -version
       - name: Unit + integration tests
         run: pytest --cov=coverart_cli --cov-report=term-missing --cov-fail-under=78
