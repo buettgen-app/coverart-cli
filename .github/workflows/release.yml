@@ -31,8 +31,10 @@ env:
         id: .id,
         draft: .draft,
         immutable: .immutable,
+        prerelease: .prerelease,
         tag_name: .tag_name,
-        target_commitish: .target_commitish
+        target_commitish: .target_commitish,
+        body: .body
       }
     elif length == 0 then
       error("release not found")
@@ -43,8 +45,26 @@ env:
     (.id | tostring) == $id and
     .draft == true and
     .immutable == false and
+    .prerelease == false and
     .tag_name == $tag and
     .target_commitish == $sha
+  DRAFT_ASSETS_JQ: >-
+    . as $release |
+    ($release.assets | length) == ($assets | length) and
+    all($assets[];
+      . as $expected |
+      [$release.assets[] |
+        select(.name == $expected.name and
+               .digest == $expected.digest and
+               .state == "uploaded" and
+               (.id | type) == "number")] |
+      length == 1)
+  EXACT_TAG_JQ: >-
+    [.[] | select(.ref == $ref)] |
+    if length == 1 then .[0]
+    elif length == 0 then null
+    else error("multiple exact tag refs found")
+    end
 
 jobs:
   validate:
@@ -58,6 +78,7 @@ jobs:
       draft: ${{ steps.release.outputs.draft }}
       release_ref: ${{ steps.release.outputs.ref }}
       release_sha: ${{ steps.source.outputs.sha }}
+      release_target: ${{ steps.release.outputs.target }}
     steps:
       - name: Validate internal publication dispatch
         if: github.event_name == 'repository_dispatch'
@@ -115,6 +136,25 @@ jobs:
           draft="$(jq -r .draft <<<"$release")"
           immutable="$(jq -r .immutable <<<"$release")"
           target_commitish="$(jq -r .target_commitish <<<"$release")"
+          tag_refs="$(
+            gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$RELEASE_TAG"
+          )"
+          tag_ref="$(
+            jq -c --arg ref "refs/tags/$RELEASE_TAG" \
+              "$EXACT_TAG_JQ" <<<"$tag_refs"
+          )"
+          tag_sha=""
+          if [ "$tag_ref" != "null" ]; then
+            if [ "$(jq -r .object.type <<<"$tag_ref")" != "commit" ]; then
+              echo "::error::$RELEASE_TAG must be a lightweight commit tag."
+              exit 1
+            fi
+            tag_sha="$(jq -r .object.sha <<<"$tag_ref")"
+            if [[ ! "$tag_sha" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::$RELEASE_TAG does not resolve to a full commit SHA."
+              exit 1
+            fi
+          fi
 
           if [ "$(jq -r .tag_name <<<"$release")" != "$RELEASE_TAG" ]; then
             echo "::error::Resolved release tag does not match $RELEASE_TAG."
@@ -130,6 +170,10 @@ jobs:
               echo "::error::$RELEASE_TAG does not target the dispatched release SHA."
               exit 1
             fi
+            if [ -n "$tag_sha" ] && [ "$tag_sha" != "$RELEASE_SHA" ]; then
+              echo "::error::$RELEASE_TAG already resolves to a different commit."
+              exit 1
+            fi
             release_ref="$RELEASE_SHA"
           elif [ "$draft" = "true" ]; then
             if [ "$immutable" != "false" ] ||
@@ -137,7 +181,14 @@ jobs:
               echo "::error::Draft recovery requires a mutable release targeting a full commit SHA."
               exit 1
             fi
-            release_ref="$target_commitish"
+            if [ -n "$tag_sha" ]; then
+              release_ref="$tag_sha"
+            elif [[ ! "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::Manual recovery is not bound to a full main commit SHA."
+              exit 1
+            else
+              release_ref="$GITHUB_SHA"
+            fi
           else
             release_ref="$RELEASE_TAG"
           fi
@@ -150,6 +201,7 @@ jobs:
           echo "id=$(jq -r .id <<<"$release")" >> "$GITHUB_OUTPUT"
           echo "draft=$draft" >> "$GITHUB_OUTPUT"
           echo "ref=$release_ref" >> "$GITHUB_OUTPUT"
+          echo "target=$target_commitish" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.release.outputs.ref }}
@@ -163,6 +215,23 @@ jobs:
         run: |
           if [ "$(git rev-parse HEAD)" != "$RELEASE_SHA" ]; then
             echo "::error::Dispatched release SHA does not match the published tag."
+            exit 1
+          fi
+      - name: Verify mutable draft ancestry
+        if: steps.release.outputs.draft == 'true'
+        env:
+          VALIDATED_DRAFT_TARGET: ${{ steps.release.outputs.target }}
+        run: |
+          if [[ ! "$VALIDATED_DRAFT_TARGET" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Mutable draft target is not a full commit SHA."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$VALIDATED_DRAFT_TARGET" HEAD; then
+            echo "::error::Mutable draft target is not an ancestor of the verified release source."
+            exit 1
+          fi
+          if ! git diff --quiet HEAD origin/main -- .github/workflows; then
+            echo "::error::Release source uses workflows that differ from current main."
             exit 1
           fi
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -332,6 +401,90 @@ jobs:
         with:
           name: dist-${{ env.RELEASE_TAG }}
           path: dist/
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.release_sha }}
+          path: source
+          persist-credentials: false
+      - name: Bind mutable draft to exact verified source
+        if: needs.validate.outputs.draft == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.validate.outputs.release_id }}
+          EXPECTED_RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
+          VALIDATED_DRAFT_TARGET: ${{ needs.validate.outputs.release_target }}
+        run: |
+          verify_workflow_identity() {
+            local current_main="$1"
+            if [ "$current_main" = "$EXPECTED_RELEASE_SHA" ]; then
+              return 0
+            fi
+            expected_workflows="$(
+              gh api --method GET \
+                "repos/$GITHUB_REPOSITORY/contents/.github/workflows" \
+                -f ref="$EXPECTED_RELEASE_SHA" \
+                --jq 'sort_by(.name) | map({name, sha, type})'
+            )"
+            current_workflows="$(
+              gh api --method GET \
+                "repos/$GITHUB_REPOSITORY/contents/.github/workflows" \
+                -f ref="$current_main" \
+                --jq 'sort_by(.name) | map({name, sha, type})'
+            )"
+            if [ "$expected_workflows" != "$current_workflows" ]; then
+              echo "::error::Release source workflows differ from current main."
+              return 1
+            fi
+          }
+
+          current_main="$(
+            gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha
+          )"
+          verify_workflow_identity "$current_main"
+
+          version="${RELEASE_TAG#v}"
+          release_body="$(python - "$version" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          version = re.escape(sys.argv[1])
+          changelog = Path("source/CHANGELOG.md").read_text(encoding="utf-8")
+          match = re.search(rf"^## \[{version}\].*?(?=^## \[|\Z)", changelog, re.MULTILINE | re.DOTALL)
+          if match is None:
+              raise SystemExit("release changelog section not found")
+          print(match.group(0).rstrip())
+          PY
+          )"
+
+          release="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID")"
+          if ! jq -e \
+            --arg id "$RELEASE_ID" \
+            --arg tag "$RELEASE_TAG" \
+            --arg sha "$VALIDATED_DRAFT_TARGET" \
+            "$DRAFT_RELEASE_JQ" <<<"$release" >/dev/null; then
+            echo "::error::$RELEASE_TAG changed before source binding."
+            exit 1
+          fi
+
+          rebound="$(
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+              -f target_commitish="$EXPECTED_RELEASE_SHA" \
+              -F prerelease=false \
+              --raw-field body="$release_body"
+          )"
+          if ! jq -e \
+            --arg id "$RELEASE_ID" \
+            --arg tag "$RELEASE_TAG" \
+            --arg sha "$EXPECTED_RELEASE_SHA" \
+            "$DRAFT_RELEASE_JQ" <<<"$rebound" >/dev/null; then
+            echo "::error::GitHub did not bind the mutable draft to the verified source."
+            exit 1
+          fi
+          if [ "$(jq -r .body <<<"$rebound")" != "$release_body" ]; then
+            echo "::error::GitHub did not bind the draft release notes to the changelog."
+            exit 1
+          fi
       - name: Revalidate and upload draft assets by release ID
         if: needs.validate.outputs.draft == 'true'
         env:
@@ -395,68 +548,166 @@ jobs:
               exit 1
             fi
           done
-      - name: Validate draft release assets
-        if: needs.validate.outputs.draft == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_ID: ${{ needs.validate.outputs.release_id }}
-        run: |
-          expected_assets="$(find dist -maxdepth 1 -type f -printf '%f\n' | sort)"
-          actual_assets="$(
-            gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" |
-              jq -r '.assets[].name' |
-              sort
-          )"
-          if [ "$(printf '%s\n' "$expected_assets" | sed '/^$/d' | wc -l | tr -d ' ')" -ne 2 ] ||
-             [ "$actual_assets" != "$expected_assets" ]; then
-            echo "::error::$RELEASE_TAG contains unexpected or missing release assets; leaving it as a mutable draft."
-            printf 'Expected:\n%s\nActual:\n%s\n' "$expected_assets" "$actual_assets"
-            exit 1
-          fi
-
-          while IFS= read -r asset; do
-            local_digest="sha256:$(sha256sum "dist/$asset" | cut -d' ' -f1)"
-            remote_digest="$(
-              gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
-                --jq ".assets[] | select(.name == \"$asset\") | .digest"
-            )"
-            if [ "$remote_digest" != "$local_digest" ]; then
-              echo "::error::$asset digest does not match its GitHub release asset."
-              exit 1
-            fi
-          done <<<"$expected_assets"
-      - name: Revalidate and publish exact draft release
+      - name: Bind tag and publish exact verified draft release
         if: needs.validate.outputs.draft == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_ID: ${{ needs.validate.outputs.release_id }}
           EXPECTED_RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
         run: |
-          release="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID")"
-          if ! jq -e \
-            --arg id "$RELEASE_ID" \
-            --arg tag "$RELEASE_TAG" \
-            --arg sha "$EXPECTED_RELEASE_SHA" \
-            "$DRAFT_RELEASE_JQ" <<<"$release" >/dev/null; then
-            echo "::error::$RELEASE_TAG changed before publication; leaving it unpublished."
+          verify_workflow_identity() {
+            local current_main="$1"
+            if [ "$current_main" = "$EXPECTED_RELEASE_SHA" ]; then
+              return 0
+            fi
+            expected_workflows="$(
+              gh api --method GET \
+                "repos/$GITHUB_REPOSITORY/contents/.github/workflows" \
+                -f ref="$EXPECTED_RELEASE_SHA" \
+                --jq 'sort_by(.name) | map({name, sha, type})'
+            )"
+            current_workflows="$(
+              gh api --method GET \
+                "repos/$GITHUB_REPOSITORY/contents/.github/workflows" \
+                -f ref="$current_main" \
+                --jq 'sort_by(.name) | map({name, sha, type})'
+            )"
+            if [ "$expected_workflows" != "$current_workflows" ]; then
+              echo "::error::Release source workflows differ from current main."
+              return 1
+            fi
+          }
+
+          version="${RELEASE_TAG#v}"
+          release_body="$(python - "$version" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          version = re.escape(sys.argv[1])
+          changelog = Path("source/CHANGELOG.md").read_text(encoding="utf-8")
+          match = re.search(rf"^## \[{version}\].*?(?=^## \[|\Z)", changelog, re.MULTILINE | re.DOTALL)
+          if match is None:
+              raise SystemExit("release changelog section not found")
+          print(match.group(0).rstrip())
+          PY
+          )"
+
+          expected_assets='[]'
+          for asset_path in dist/*; do
+            asset_name="$(basename "$asset_path")"
+            asset_digest="sha256:$(sha256sum "$asset_path" | cut -d' ' -f1)"
+            expected_assets="$(
+              jq -c \
+                --arg name "$asset_name" \
+                --arg digest "$asset_digest" \
+                '. + [{name: $name, digest: $digest}]' \
+                <<<"$expected_assets"
+            )"
+          done
+          if [ "$(jq 'length' <<<"$expected_assets")" -ne 2 ]; then
+            echo "::error::Expected exactly one wheel and one source distribution."
             exit 1
           fi
 
+          validate_draft_release() {
+            local release_json="$1"
+            if ! jq -e \
+              --arg id "$RELEASE_ID" \
+              --arg tag "$RELEASE_TAG" \
+              --arg sha "$EXPECTED_RELEASE_SHA" \
+              "$DRAFT_RELEASE_JQ" <<<"$release_json" >/dev/null; then
+              echo "::error::$RELEASE_TAG changed before publication; leaving it unpublished."
+              return 1
+            fi
+            if [ "$(jq -r .body <<<"$release_json")" != "$release_body" ]; then
+              echo "::error::$RELEASE_TAG notes do not match the release changelog."
+              return 1
+            fi
+            if ! jq -e \
+              --argjson assets "$expected_assets" \
+              "$DRAFT_ASSETS_JQ" <<<"$release_json" >/dev/null; then
+              echo "::error::$RELEASE_TAG assets do not match the exact verified build."
+              return 1
+            fi
+          }
+
+          release="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID")"
+          validate_draft_release "$release"
+
+          current_main="$(
+            gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha
+          )"
+          verify_workflow_identity "$current_main"
+
+          tag_create_error="$RUNNER_TEMP/tag-create-error"
+          if ! gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f ref="refs/tags/$RELEASE_TAG" \
+            -f sha="$EXPECTED_RELEASE_SHA" \
+            > /dev/null 2>"$tag_create_error"; then
+            existing_refs="$(
+              gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$RELEASE_TAG"
+            )"
+            existing_ref="$(
+              jq -c --arg ref "refs/tags/$RELEASE_TAG" \
+                "$EXACT_TAG_JQ" <<<"$existing_refs"
+            )"
+            if [ "$existing_ref" = "null" ]; then
+              cat "$tag_create_error" >&2
+              exit 1
+            fi
+          fi
+          verify_release_tag() {
+            local refs exact_ref
+            refs="$(
+              gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$RELEASE_TAG"
+            )"
+            exact_ref="$(
+              jq -c --arg ref "refs/tags/$RELEASE_TAG" \
+                "$EXACT_TAG_JQ" <<<"$refs"
+            )"
+            if [ "$exact_ref" = "null" ]; then
+              echo "::error::Exact release tag is missing."
+              return 1
+            fi
+            if [ "$(jq -r .object.type <<<"$exact_ref")" != "commit" ] ||
+               [ "$(jq -r .object.sha <<<"$exact_ref")" != "$EXPECTED_RELEASE_SHA" ]; then
+              echo "::error::$RELEASE_TAG is not bound to $EXPECTED_RELEASE_SHA."
+              return 1
+            fi
+          }
+          verify_release_tag
+
+          current_main="$(
+            gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha
+          )"
+          release="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID")"
+          verify_workflow_identity "$current_main"
+          validate_draft_release "$release"
+          verify_release_tag
+
           published="$(
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
-              -f tag_name="$RELEASE_TAG" \
-              -f target_commitish="$EXPECTED_RELEASE_SHA" \
               -F draft=false
           )"
           if ! jq -e \
             --arg id "$RELEASE_ID" \
             --arg tag "$RELEASE_TAG" \
             --arg sha "$EXPECTED_RELEASE_SHA" \
+            --arg body "$release_body" \
             '(.id | tostring) == $id and
              .draft == false and
+             .prerelease == false and
              .tag_name == $tag and
-             .target_commitish == $sha' <<<"$published" >/dev/null; then
+             .target_commitish == $sha and
+             .body == $body' <<<"$published" >/dev/null; then
             echo "::error::GitHub did not publish the expected release state."
+            exit 1
+          fi
+          if ! jq -e \
+            --argjson assets "$expected_assets" \
+            "$DRAFT_ASSETS_JQ" <<<"$published" >/dev/null; then
+            echo "::error::Published assets differ from the verified build."
             exit 1
           fi
       - name: Verify published release
@@ -466,14 +717,33 @@ jobs:
           RELEASE_ID: ${{ needs.validate.outputs.release_id }}
           EXPECTED_RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
         run: |
+          version="${RELEASE_TAG#v}"
+          release_body="$(python - "$version" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          version = re.escape(sys.argv[1])
+          changelog = Path("source/CHANGELOG.md").read_text(encoding="utf-8")
+          match = re.search(rf"^## \[{version}\].*?(?=^## \[|\Z)", changelog, re.MULTILINE | re.DOTALL)
+          if match is None:
+              raise SystemExit("release changelog section not found")
+          print(match.group(0).rstrip())
+          PY
+          )"
           release="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")"
           if ! jq -e \
             --arg id "$RELEASE_ID" \
             --arg tag "$RELEASE_TAG" \
+            --arg sha "$EXPECTED_RELEASE_SHA" \
+            --arg body "$release_body" \
             '(.id | tostring) == $id and
              .draft == false and
              .immutable == true and
-             .tag_name == $tag' <<<"$release" >/dev/null; then
+             .prerelease == false and
+             .tag_name == $tag and
+             .target_commitish == $sha and
+             .body == $body' <<<"$release" >/dev/null; then
             echo "::error::$RELEASE_TAG is not the expected immutable published release."
             exit 1
           fi
@@ -489,11 +759,17 @@ jobs:
             gh release verify-asset "$RELEASE_TAG" "$asset" --repo "$GITHUB_REPOSITORY"
           done
 
-          published_sha="$(
-            gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha
+          tag_refs="$(
+            gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$RELEASE_TAG"
           )"
-          if [ "$published_sha" != "$EXPECTED_RELEASE_SHA" ]; then
-            echo "::error::$RELEASE_TAG resolves to $published_sha, expected $EXPECTED_RELEASE_SHA; refusing PyPI publication."
+          tag_ref="$(
+            jq -c --arg ref "refs/tags/$RELEASE_TAG" \
+              "$EXACT_TAG_JQ" <<<"$tag_refs"
+          )"
+          if [ "$tag_ref" = "null" ] ||
+             [ "$(jq -r .object.type <<<"$tag_ref")" != "commit" ] ||
+             [ "$(jq -r .object.sha <<<"$tag_ref")" != "$EXPECTED_RELEASE_SHA" ]; then
+            echo "::error::$RELEASE_TAG is not bound to $EXPECTED_RELEASE_SHA; refusing PyPI publication."
             exit 1
           fi
 

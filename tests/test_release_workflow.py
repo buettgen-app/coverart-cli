@@ -13,6 +13,7 @@ RELEASE_WORKFLOW = Path(__file__).parents[1] / ".github" / "workflows" / "releas
 RELEASE_ID = "379808429"
 RELEASE_TAG = "v0.6.1"
 RELEASE_SHA = "8c2e688cad72ac433fb5d91c768dbe677a6398dc"
+RELEASE_BODY = "## [0.6.1] release notes"
 
 
 def _folded_env_value(name: str) -> str:
@@ -68,6 +69,46 @@ def _run_draft_state(release: dict[str, object]) -> subprocess.CompletedProcess[
     )
 
 
+def _run_draft_assets(
+    release: dict[str, object], assets: list[dict[str, str]]
+) -> subprocess.CompletedProcess[str]:
+    jq = shutil.which("jq")
+    assert jq is not None, "jq is required to verify the release workflow"
+    return subprocess.run(
+        [
+            jq,
+            "-e",
+            "--argjson",
+            "assets",
+            json.dumps(assets),
+            _folded_env_value("DRAFT_ASSETS_JQ"),
+        ],
+        input=json.dumps(release),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _run_exact_tag_lookup(refs: list[object]) -> subprocess.CompletedProcess[str]:
+    jq = shutil.which("jq")
+    assert jq is not None, "jq is required to verify the release workflow"
+    return subprocess.run(
+        [
+            jq,
+            "-c",
+            "--arg",
+            "ref",
+            f"refs/tags/{RELEASE_TAG}",
+            _folded_env_value("EXACT_TAG_JQ"),
+        ],
+        input=json.dumps(refs),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
 def test_draft_release_lookup_uses_authenticated_paginated_collection() -> None:
     """Draft lookup must not require the tag ref that publication creates later."""
     workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
@@ -107,16 +148,23 @@ def test_draft_is_revalidated_and_published_at_the_bound_commit() -> None:
     """Finalize must not trust mutable draft state captured before build and tests."""
     workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
 
-    assert workflow.count('"$DRAFT_RELEASE_JQ" <<<"$release"') == 2
+    assert 'release_ref="$GITHUB_SHA"' in workflow
+    assert 'release_ref="$tag_sha"' in workflow
+    assert 'target=$target_commitish' in workflow
+    assert 'git merge-base --is-ancestor "$VALIDATED_DRAFT_TARGET" HEAD' in workflow
+    assert 'name: Bind mutable draft to exact verified source' in workflow
+    assert workflow.count('-f target_commitish="$EXPECTED_RELEASE_SHA"') == 1
     assert "gh release upload" not in workflow
     assert (
         '"https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/'
         '$RELEASE_ID/assets?name=$encoded_name"' in workflow
     )
-    assert '-f tag_name="$RELEASE_TAG"' in workflow
-    assert '-f target_commitish="$EXPECTED_RELEASE_SHA"' in workflow
-    assert 'gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha' in workflow
-    assert 'if [ "$published_sha" != "$EXPECTED_RELEASE_SHA" ]; then' in workflow
+    assert '-f ref="refs/tags/$RELEASE_TAG"' in workflow
+    assert 'validate_draft_release "$release"' in workflow
+    assert workflow.count('gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main"') == 3
+    assert workflow.count("git/matching-refs/tags/$RELEASE_TAG") == 4
+    assert '"$EXACT_TAG_JQ" <<<"$tag_refs"' in workflow
+    assert "refusing PyPI publication" in workflow
 
 
 def test_expected_mutable_draft_state_is_accepted() -> None:
@@ -124,8 +172,10 @@ def test_expected_mutable_draft_state_is_accepted() -> None:
         "id": int(RELEASE_ID),
         "draft": True,
         "immutable": False,
+        "prerelease": False,
         "tag_name": RELEASE_TAG,
         "target_commitish": RELEASE_SHA,
+        "body": RELEASE_BODY,
     }
 
     result = _run_draft_state(release)
@@ -139,6 +189,7 @@ def test_expected_mutable_draft_state_is_accepted() -> None:
         ("id", 1),
         ("draft", False),
         ("immutable", True),
+        ("prerelease", True),
         ("tag_name", "v0.6.2"),
         ("target_commitish", "f" * 40),
     ],
@@ -148,8 +199,10 @@ def test_mutated_draft_state_is_rejected(field: str, value: object) -> None:
         "id": int(RELEASE_ID),
         "draft": True,
         "immutable": False,
+        "prerelease": False,
         "tag_name": RELEASE_TAG,
         "target_commitish": RELEASE_SHA,
+        "body": RELEASE_BODY,
     }
     release[field] = value
 
@@ -158,14 +211,112 @@ def test_mutated_draft_state_is_rejected(field: str, value: object) -> None:
     assert result.returncode != 0
 
 
+def test_exact_uploaded_draft_assets_are_accepted() -> None:
+    assets = [
+        {"name": "coverart_cli-0.6.1-py3-none-any.whl", "digest": "sha256:aaa"},
+        {"name": "coverart_cli-0.6.1.tar.gz", "digest": "sha256:bbb"},
+    ]
+    release: dict[str, object] = {
+        "assets": [
+            {"id": 1, "state": "uploaded", **assets[0]},
+            {"id": 2, "state": "uploaded", **assets[1]},
+        ]
+    }
+
+    result = _run_draft_assets(release, assets)
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "digest",
+        "state",
+        "non_numeric_id",
+        "missing",
+        "extra",
+        "duplicate",
+    ],
+)
+def test_mutated_draft_assets_are_rejected(mutation: str) -> None:
+    assets = [
+        {"name": "coverart_cli-0.6.1-py3-none-any.whl", "digest": "sha256:aaa"},
+        {"name": "coverart_cli-0.6.1.tar.gz", "digest": "sha256:bbb"},
+    ]
+    release_assets: list[dict[str, object]] = [
+        {"id": 1, "state": "uploaded", **assets[0]},
+        {"id": 2, "state": "uploaded", **assets[1]},
+    ]
+    if mutation == "digest":
+        release_assets[0]["digest"] = "sha256:poisoned"
+    elif mutation == "state":
+        release_assets[0]["state"] = "open"
+    elif mutation == "non_numeric_id":
+        release_assets[0]["id"] = "1"
+    elif mutation == "missing":
+        release_assets.pop()
+    elif mutation == "extra":
+        release_assets.append(
+            {"id": 3, "state": "uploaded", "name": "extra", "digest": "sha256:ccc"}
+        )
+    else:
+        release_assets[1] = {"id": 3, "state": "uploaded", **assets[0]}
+
+    result = _run_draft_assets({"assets": release_assets}, assets)
+
+    assert result.returncode != 0
+
+
+def test_exact_tag_lookup_ignores_prefix_matches() -> None:
+    expected = {
+        "ref": f"refs/tags/{RELEASE_TAG}",
+        "object": {"type": "commit", "sha": RELEASE_SHA},
+    }
+    refs: list[object] = [
+        {"ref": f"refs/tags/{RELEASE_TAG}.1"},
+        expected,
+        {"ref": f"refs/tags/{RELEASE_TAG}-rc1"},
+    ]
+
+    result = _run_exact_tag_lookup(refs)
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == expected
+
+
+@pytest.mark.parametrize(
+    "refs",
+    [
+        [],
+        [
+            {"ref": f"refs/tags/{RELEASE_TAG}"},
+            {"ref": f"refs/tags/{RELEASE_TAG}"},
+        ],
+    ],
+)
+def test_exact_tag_lookup_fails_closed_when_ambiguous(
+    refs: list[object],
+) -> None:
+    result = _run_exact_tag_lookup(refs)
+
+    if refs:
+        assert result.returncode != 0
+    else:
+        assert result.returncode == 0
+        assert json.loads(result.stdout) is None
+
+
 def test_draft_release_lookup_returns_exact_match_across_pages() -> None:
     """The exact workflow program must normalize one matching draft."""
     expected = {
         "id": int(RELEASE_ID),
         "draft": True,
         "immutable": False,
+        "prerelease": False,
         "tag_name": RELEASE_TAG,
         "target_commitish": RELEASE_SHA,
+        "body": RELEASE_BODY,
     }
     pages: list[list[object]] = [
         [{"id": 1, "tag_name": "v0.6.0"}],
