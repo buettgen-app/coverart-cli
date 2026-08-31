@@ -856,6 +856,16 @@ def test_release_network_calls_and_jobs_have_hard_timeouts() -> None:
     assert 3 * 12 * (15 + sleep_seconds) < 30 * 60
 
 
+def test_actions_read_permission_is_validate_only() -> None:
+    workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    validate_start = workflow.index("  validate:")
+    test_start = workflow.index("\n  test:", validate_start)
+    validate = workflow[validate_start:test_start]
+
+    assert workflow.count("actions: read") == 1
+    assert "actions: read" in validate
+
+
 @pytest.mark.parametrize(
     ("sequence", "predicate_sequence", "expected", "calls", "sleeps"),
     [
