@@ -99,6 +99,7 @@ def _run_recoverable_state(
         text=True,
     )
 
+
 def _run_draft_assets(
     release: dict[str, object], assets: list[dict[str, str]]
 ) -> subprocess.CompletedProcess[str]:
@@ -165,6 +166,7 @@ def _run_pypi_state(
         capture_output=True,
         text=True,
     )
+
 
 def test_draft_release_lookup_uses_authenticated_paginated_collection() -> None:
     """Draft lookup must not require the tag ref that publication creates later."""
@@ -365,6 +367,7 @@ def test_unrecoverable_release_phases_are_rejected(
 
     assert result.returncode != 0
 
+
 def test_exact_uploaded_draft_assets_are_accepted() -> None:
     assets = [
         {"name": "coverart_cli-0.6.1-py3-none-any.whl", "digest": "sha256:aaa"},
@@ -475,6 +478,7 @@ def test_wrong_pypi_version_is_rejected() -> None:
     release = {"info": {"version": "0.6.2"}, "urls": []}
 
     assert _run_pypi_state(release, assets, complete=False).returncode != 0
+
 
 def test_exact_tag_lookup_ignores_prefix_matches() -> None:
     expected = {
