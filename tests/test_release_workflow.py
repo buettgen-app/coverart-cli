@@ -813,9 +813,7 @@ def test_immutable_recovery_matches_fresh_reproducible_artifacts() -> None:
     build_end = workflow.index("      - name:", build_start + len(build_marker))
     build_block = workflow[build_start:build_end]
     download = _step_run("Download immutable release assets for recovery")
-    compare = _step_run(
-        "Match immutable release assets to a fresh deterministic build"
-    )
+    compare = _step_run("Match immutable release assets to a fresh deterministic build")
 
     assert "if:" not in build_block
     assert 'SOURCE_DATE_EPOCH: "1580601600"' in build_block
