@@ -857,22 +857,24 @@ def test_release_network_calls_and_jobs_have_hard_timeouts() -> None:
 
 
 @pytest.mark.parametrize(
-    ("sequence", "predicate_sequence", "expected", "calls"),
+    ("sequence", "predicate_sequence", "expected", "calls", "sleeps"),
     [
-        ("200", "true", "success\n", "1"),
-        ("000 503 200", "false false true", "success\n", "3"),
-        ("200 200", "false true", "success\n", "2"),
+        ("200", "true", "success\n", "1", "0"),
+        ("000 503 200", "false false true", "success\n", "3", "2"),
+        ("200 200", "false true", "success\n", "2", "1"),
         (
             "503 503 503 503 503 503 503 503 503 503 503 503",
             "false false false false false false false false false false false false",
             "failure\n",
             "12",
+            "11",
         ),
         (
             "200 200 200 200 200 200 200 200 200 200 200 200",
             "false false false false false false false false false false false false",
             "failure\n",
             "12",
+            "11",
         ),
     ],
 )
@@ -882,12 +884,14 @@ def test_pypi_poll_retries_and_exhausts_exactly(
     predicate_sequence: str,
     expected: str,
     calls: str,
+    sleeps: str,
 ) -> None:
     verify = _step_run("Verify PyPI files and attestations")
     poll = _shell_function(verify, "pypi_poll_json")
     script = f"""set -euo pipefail
 {poll}
 printf 0 > calls
+printf 0 > sleeps
 sequence=({sequence})
 predicate_sequence=({predicate_sequence})
 pypi_http_status() {{
@@ -903,7 +907,10 @@ predicate() {{
   [ "${{predicate_sequence[$((n - 1))]}}" = "true" ]
 }}
 sleep() {{
-  :
+  local n
+  n="$(cat sleeps)"
+  n=$((n + 1))
+  printf '%s' "$n" > sleeps
 }}
 if pypi_poll_json response predicate https://example.invalid; then
   printf 'success\n'
@@ -922,6 +929,7 @@ fi
     assert result.returncode == 0, result.stderr
     assert result.stdout == expected
     assert (tmp_path / "calls").read_text() == calls
+    assert (tmp_path / "sleeps").read_text() == sleeps
 
 
 def test_every_pypi_lookup_uses_the_tested_status_helper() -> None:
