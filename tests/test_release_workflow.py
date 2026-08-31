@@ -58,14 +58,14 @@ def test_draft_release_lookup_uses_authenticated_paginated_collection() -> None:
 
 def test_paginated_api_failure_stops_before_release_selection() -> None:
     """A failed later page must not leave a usable partial release response."""
-    result = subprocess.run(
+    script = "\n".join(
         [
-            "bash",
-            "-e",
-            "-c",
-            'release_pages="$(printf \'[%s]\\n\' \'{"tag_name":"v0.6.1"}\'; exit 42)"\n'
+            'release_pages="$(printf \'[%s]\\n\' \'{"tag_name":"v0.6.1"}\'; exit 42)"',
             "printf '%s' \"$release_pages\"",
-        ],
+        ]
+    )
+    result = subprocess.run(
+        ["bash", "-e", "-c", script],
         check=False,
         capture_output=True,
         text=True,
