@@ -221,9 +221,7 @@ def _provenance_payload(
         "predicateType": predicate_type,
         "predicate": predicate,
     }
-    encoded = base64.b64encode(
-        json.dumps(statement, separators=(",", ":")).encode()
-    ).decode()
+    encoded = base64.b64encode(json.dumps(statement, separators=(",", ":")).encode()).decode()
     return {
         "version": api_version,
         "attestation_bundles": [
@@ -248,11 +246,7 @@ def _provenance_payload(
 def _step_run(name: str) -> str:
     lines = RELEASE_WORKFLOW.read_text(encoding="utf-8").splitlines()
     start = lines.index(f"      - name: {name}")
-    run = next(
-        index
-        for index in range(start + 1, len(lines))
-        if lines[index] == "        run: |"
-    )
+    run = next(index for index in range(start + 1, len(lines)) if lines[index] == "        run: |")
     body: list[str] = []
     for line in lines[run + 1 :]:
         if line and not line.startswith("          "):
@@ -265,9 +259,7 @@ def _step_run(name: str) -> str:
 def _shell_function(script: str, name: str) -> str:
     lines = script.splitlines()
     start = lines.index(f"{name}() {{")
-    end = next(
-        index for index in range(start + 1, len(lines)) if lines[index] == "}"
-    )
+    end = next(index for index in range(start + 1, len(lines)) if lines[index] == "}")
     return "\n".join(lines[start : end + 1])
 
 
@@ -302,15 +294,11 @@ def _assert_finalize_order(script: str) -> None:
         < tag_check
         < publication
     )
-    guarded_tail = script[
-        tag_check + len("verify_annotated_release_tag") : publication
-    ]
+    guarded_tail = script[tag_check + len("verify_annotated_release_tag") : publication]
     assert "--method POST" not in guarded_tail
     assert "--method PATCH" not in guarded_tail
     assert "--method DELETE" not in guarded_tail
-    assert script.find(
-        "verify_annotated_release_tag", publication
-    ) > publication
+    assert script.find("verify_annotated_release_tag", publication) > publication
 
 
 def _run_ruleset_state(
@@ -494,9 +482,7 @@ def test_every_pypi_lookup_uses_the_tested_status_helper() -> None:
     plan = _step_run("Plan idempotent PyPI upload")
     verify = _step_run("Verify PyPI files and attestations")
 
-    assert _shell_function(plan, "pypi_http_status") == _shell_function(
-        verify, "pypi_http_status"
-    )
+    assert _shell_function(plan, "pypi_http_status") == _shell_function(verify, "pypi_http_status")
     assert plan.count('pypi_http_status "$') == 1
     assert verify.count('pypi_http_status "$') == 2
 
@@ -565,9 +551,7 @@ def test_weakened_release_tag_rulesets_are_rejected(mutation: str) -> None:
     ruleset = _ruleset_payload()
     if mutation.startswith("missing-"):
         missing = mutation.removeprefix("missing-").replace("-", "_")
-        ruleset["rules"] = [
-            rule for rule in ruleset["rules"] if rule["type"] != missing
-        ]
+        ruleset["rules"] = [rule for rule in ruleset["rules"] if rule["type"] != missing]
     elif mutation == "inactive":
         ruleset["enforcement"] = "evaluate"
     elif mutation == "excluded":
@@ -708,13 +692,9 @@ def test_missing_malformed_or_ambiguous_provenance_is_rejected(
     if mutation == "missing":
         payload["attestation_bundles"] = []
     elif mutation == "malformed":
-        payload["attestation_bundles"][0]["attestations"][0]["envelope"][
-            "statement"
-        ] = "%%%"
+        payload["attestation_bundles"][0]["attestations"][0]["envelope"]["statement"] = "%%%"
     else:
-        payload["attestation_bundles"].append(
-            copy.deepcopy(payload["attestation_bundles"][0])
-        )
+        payload["attestation_bundles"].append(copy.deepcopy(payload["attestation_bundles"][0]))
 
     assert _run_provenance_state(payload).returncode != 0
 
