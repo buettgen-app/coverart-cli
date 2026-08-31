@@ -335,9 +335,7 @@ def _assert_finalize_order(script: str) -> None:
         < immutable_check
         < publication
     )
-    guarded_tail = script[
-        immutable_check + len("verify_immutable_release_policy") : publication
-    ]
+    guarded_tail = script[immutable_check + len("verify_immutable_release_policy") : publication]
     assert "--method POST" not in guarded_tail
     assert "--method PATCH" not in guarded_tail
     assert "--method DELETE" not in guarded_tail
@@ -547,9 +545,9 @@ def test_published_release_reuses_strict_annotated_tag_guard() -> None:
     finalize = _step_run("Bind tag and publish exact verified draft release")
     published = _step_run("Verify published release")
 
-    assert _shell_function(
-        finalize, "verify_annotated_release_tag"
-    ) == _shell_function(published, "verify_annotated_release_tag")
+    assert _shell_function(finalize, "verify_annotated_release_tag") == _shell_function(
+        published, "verify_annotated_release_tag"
+    )
     assert published.count("\nverify_annotated_release_tag\n") == 1
 
 
