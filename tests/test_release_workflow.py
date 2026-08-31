@@ -235,6 +235,7 @@ def test_draft_is_revalidated_and_published_at_the_bound_commit() -> None:
     assert '"$PYPI_EXISTING_JQ" "$response"' in workflow
     assert '"$PYPI_COMPLETE_JQ" "$response"' in workflow
     assert "integrity/coverart-cli/$version/$encoded_name/provenance" in workflow
+    assert workflow.count("status=000") == 2
     assert "@base64d | fromjson" in workflow
 
 

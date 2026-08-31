@@ -924,12 +924,14 @@ jobs:
           response="$RUNNER_TEMP/pypi-release-final.json"
           complete=false
           for attempt in {1..12}; do
-            status="$(
+            if ! status="$(
               curl --silent --show-error --location \
                 --output "$response" \
                 --write-out '%{http_code}' \
                 "https://pypi.org/pypi/coverart-cli/$version/json"
-            )"
+            )"; then
+              status=000
+            fi
             if [ "$status" = "200" ] && jq -e \
               --arg version "$version" \
               --argjson assets "$expected_assets" \
@@ -951,13 +953,15 @@ jobs:
             provenance="$RUNNER_TEMP/provenance-$encoded_name.json"
             attested=false
             for attempt in {1..12}; do
-              status="$(
+              if ! status="$(
                 curl --silent --show-error --location \
                   --header 'Accept: application/vnd.pypi.integrity.v1+json' \
                   --output "$provenance" \
                   --write-out '%{http_code}' \
                   "https://pypi.org/integrity/coverart-cli/$version/$encoded_name/provenance"
-              )"
+              )"; then
+                status=000
+              fi
               if [ "$status" = "200" ] && jq -e \
                 --arg name "$asset_name" \
                 --arg digest "$asset_digest" \
