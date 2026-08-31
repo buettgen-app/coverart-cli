@@ -161,9 +161,8 @@ jobs:
           /tmp/smoke-venv/bin/coverart /tmp/fixture-lib --report-only --report-html /tmp/report.html
           test -s /tmp/report.html && echo "✓ report written ($(wc -c </tmp/report.html) bytes)"
 
-
-  generate-attestation-lock:
-    name: Generate attestation verifier lock
+  attestation-lock:
+    name: Attestation verifier lock
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -176,10 +175,15 @@ jobs:
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: "0.12.7"
-      - name: Generate lock
+      - name: Verify canonical hash lock
         run: |
           uv pip compile requirements-attestation.in --universal --generate-hashes --output-file requirements-attestation.txt
-          echo LOCK_BEGIN
-          base64 -w0 requirements-attestation.txt
-          echo
-          echo LOCK_END
+          git diff --exit-code -- requirements-attestation.txt
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Smoke-test locked verifier
+        run: |
+          python -m pip install --disable-pip-version-check \
+            --only-binary=:all: --require-hashes -r requirements-attestation.txt
+          pypi-attestations --help > /dev/null

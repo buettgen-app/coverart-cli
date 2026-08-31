@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import base64
+import copy
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -15,6 +19,8 @@ RELEASE_TAG = "v0.6.1"
 RELEASE_SHA = "8c2e688cad72ac433fb5d91c768dbe677a6398dc"
 BOUND_SHA = "b" * 40
 RELEASE_BODY = "## [0.6.1] release notes"
+ATTESTED_NAME = "coverart_cli-0.6.1.tar.gz"
+ATTESTED_DIGEST = "b" * 64
 
 
 def _folded_env_value(name: str) -> str:
@@ -168,6 +174,194 @@ def _run_pypi_state(
     )
 
 
+def _run_provenance_state(
+    provenance: dict[str, object],
+    *,
+    name: str = ATTESTED_NAME,
+    digest: str = ATTESTED_DIGEST,
+) -> subprocess.CompletedProcess[str]:
+    jq = shutil.which("jq")
+    assert jq is not None, "jq is required to verify the release workflow"
+    return subprocess.run(
+        [
+            jq,
+            "-e",
+            "--arg",
+            "name",
+            name,
+            "--arg",
+            "digest",
+            digest,
+            _folded_env_value("PYPI_PROVENANCE_JQ"),
+        ],
+        input=json.dumps(provenance),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _provenance_payload(
+    *,
+    repository: str = "buettgen-app/coverart-cli",
+    workflow: str = "release.yml",
+    environment: str = "pypi",
+    kind: str = "GitHub",
+    api_version: int = 1,
+    attestation_version: int = 1,
+    name: str = ATTESTED_NAME,
+    digest: str = ATTESTED_DIGEST,
+    statement_type: str = "https://in-toto.io/Statement/v1",
+    predicate_type: str = "https://docs.pypi.org/attestations/publish/v1",
+    predicate: object = None,
+) -> dict[str, Any]:
+    statement = {
+        "_type": statement_type,
+        "subject": [{"name": name, "digest": {"sha256": digest}}],
+        "predicateType": predicate_type,
+        "predicate": predicate,
+    }
+    encoded = base64.b64encode(
+        json.dumps(statement, separators=(",", ":")).encode()
+    ).decode()
+    return {
+        "version": api_version,
+        "attestation_bundles": [
+            {
+                "publisher": {
+                    "kind": kind,
+                    "repository": repository,
+                    "workflow": workflow,
+                    "environment": environment,
+                },
+                "attestations": [
+                    {
+                        "version": attestation_version,
+                        "envelope": {"statement": encoded},
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def _step_run(name: str) -> str:
+    lines = RELEASE_WORKFLOW.read_text(encoding="utf-8").splitlines()
+    start = lines.index(f"      - name: {name}")
+    run = next(
+        index
+        for index in range(start + 1, len(lines))
+        if lines[index] == "        run: |"
+    )
+    body: list[str] = []
+    for line in lines[run + 1 :]:
+        if line and not line.startswith("          "):
+            break
+        body.append(line[10:] if line.startswith("          ") else "")
+    assert body
+    return "\n".join(body)
+
+
+def _shell_function(script: str, name: str) -> str:
+    lines = script.splitlines()
+    start = lines.index(f"{name}() {{")
+    end = next(
+        index for index in range(start + 1, len(lines)) if lines[index] == "}"
+    )
+    return "\n".join(lines[start : end + 1])
+
+
+def _assert_finalize_order(script: str) -> None:
+    publication = script.index('published="$(')
+    before = script[:publication]
+    tag_creation = before.rfind("\nensure_annotated_release_tag\n")
+    main_read = before.rfind('current_main="$(')
+    release_read = before.rfind(
+        'release="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID")"'
+    )
+    identity_check = before.rfind('verify_workflow_identity "$current_main"')
+    state_check = before.rfind('validate_draft_release "$release"')
+    ruleset_check = before.rfind("verify_release_tag_ruleset")
+    tag_check = before.rfind("verify_annotated_release_tag")
+    assert -1 not in {
+        tag_creation,
+        main_read,
+        release_read,
+        identity_check,
+        state_check,
+        ruleset_check,
+        tag_check,
+    }
+    assert (
+        tag_creation
+        < main_read
+        < release_read
+        < identity_check
+        < state_check
+        < ruleset_check
+        < tag_check
+        < publication
+    )
+    guarded_tail = script[
+        tag_check + len("verify_annotated_release_tag") : publication
+    ]
+    assert "--method POST" not in guarded_tail
+    assert "--method PATCH" not in guarded_tail
+    assert "--method DELETE" not in guarded_tail
+    assert script.find(
+        "verify_annotated_release_tag", publication
+    ) > publication
+
+
+def _run_ruleset_state(
+    ruleset: dict[str, object],
+) -> subprocess.CompletedProcess[str]:
+    jq = shutil.which("jq")
+    assert jq is not None, "jq is required to verify the release workflow"
+    return subprocess.run(
+        [jq, "-e", _folded_env_value("TAG_RULESET_JQ")],
+        input=json.dumps(ruleset),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _run_annotated_tag_guard(
+    refs: list[object],
+    tag_object: dict[str, object],
+) -> subprocess.CompletedProcess[str]:
+    finalize = _step_run("Bind tag and publish exact verified draft release")
+    helper = _shell_function(finalize, "verify_annotated_release_tag")
+    script = f"""set -euo pipefail
+{helper}
+gh() {{
+  case "$*" in
+    *matching-refs*) printf '%s\\n' "$TAG_REFS" ;;
+    *git/tags/*) printf '%s\\n' "$TAG_OBJECT" ;;
+    *) return 64 ;;
+  esac
+}}
+verify_annotated_release_tag
+"""
+    env = {
+        **os.environ,
+        "TAG_REFS": json.dumps(refs),
+        "TAG_OBJECT": json.dumps(tag_object),
+        "EXACT_TAG_JQ": _folded_env_value("EXACT_TAG_JQ"),
+        "EXPECTED_RELEASE_SHA": RELEASE_SHA,
+        "GITHUB_REPOSITORY": "buettgen-app/coverart-cli",
+        "RELEASE_TAG": RELEASE_TAG,
+    }
+    return subprocess.run(
+        ["bash", "-c", script],
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
 def test_draft_release_lookup_uses_authenticated_paginated_collection() -> None:
     """Draft lookup must not require the tag ref that publication creates later."""
     workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
@@ -208,7 +402,7 @@ def test_draft_is_revalidated_and_published_at_the_bound_commit() -> None:
     workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
 
     assert 'release_ref="$GITHUB_SHA"' in workflow
-    assert 'release_ref="$tag_sha"' in workflow
+    assert 'release_ref="$tag_sha"' not in workflow
     assert "target=$target_commitish" in workflow
     assert 'git merge-base --is-ancestor "$VALIDATED_DRAFT_TARGET" HEAD' in workflow
     assert "Release recovery includes changes outside the explicit release repair." in workflow
@@ -223,20 +417,306 @@ def test_draft_is_revalidated_and_published_at_the_bound_commit() -> None:
         '"https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/'
         '$RELEASE_ID/assets?name=$encoded_name"' in workflow
     )
-    assert '-f ref="refs/tags/$RELEASE_TAG"' in workflow
+    assert 'gh api --method POST "repos/$GITHUB_REPOSITORY/git/tags"' in workflow
+    assert 'gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs"' in workflow
+    assert "ensure_annotated_release_tag" in workflow
+    assert "verify_release_tag_ruleset" in workflow
+    assert "verify_annotated_release_tag" in workflow
+    assert '([.rules[].type] | index("update")) != null' in workflow
     assert 'validate_draft_release "$release"' in workflow
     assert workflow.count('gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main"') == 3
-    assert workflow.count("git/matching-refs/tags/$RELEASE_TAG") == 4
-    assert '"$EXACT_TAG_JQ" <<<"$tag_refs"' in workflow
+    assert workflow.count("git/matching-refs/tags/$RELEASE_TAG") >= 4
+    assert '"$EXACT_TAG_JQ" <<<"$refs"' in workflow
     assert "refusing PyPI publication" in workflow
     assert "Plan idempotent PyPI upload" in workflow
     assert "packages-dir: pypi-dist/" in workflow
     assert "skip-existing" not in workflow
     assert '"$PYPI_EXISTING_JQ" "$response"' in workflow
     assert '"$PYPI_COMPLETE_JQ" "$response"' in workflow
+    assert '"$PYPI_PROVENANCE_JQ" "$provenance"' in workflow
     assert "integrity/coverart-cli/$version/$encoded_name/provenance" in workflow
-    assert workflow.count("status=000") == 2
-    assert "@base64d | fromjson" in workflow
+    assert "Verify PyPI provenance cryptographically" in workflow
+    assert "--require-hashes -r requirements-attestation.txt" in workflow
+    assert "pypi-attestations verify pypi" in workflow
+
+
+@pytest.mark.parametrize(
+    ("sequence", "expected", "calls"),
+    [
+        ("200", "200\n", "1"),
+        ("ERR 200", "000\n200\n", "2"),
+    ],
+)
+def test_pypi_http_status_preserves_success_and_transport_failure(
+    tmp_path: Path,
+    sequence: str,
+    expected: str,
+    calls: str,
+) -> None:
+    verify = _step_run("Verify PyPI files and attestations")
+    helper = _shell_function(verify, "pypi_http_status")
+    script = f"""set -euo pipefail
+{helper}
+printf 0 > calls
+sequence=({sequence})
+curl() {{
+  local n token
+  n="$(cat calls)"
+  n=$((n + 1))
+  printf '%s' "$n" > calls
+  token="${{sequence[$((n - 1))]}}"
+  if [ "$token" = ERR ]; then
+    return 7
+  fi
+  printf '%s' "$token"
+}}
+first="$(pypi_http_status response https://example.invalid)"
+printf '%s\\n' "$first"
+if [ "$first" = 000 ]; then
+  second="$(pypi_http_status response https://example.invalid)"
+  printf '%s\\n' "$second"
+fi
+"""
+    result = subprocess.run(
+        ["bash", "-c", script],
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == expected
+    assert (tmp_path / "calls").read_text() == calls
+
+
+def test_every_pypi_lookup_uses_the_tested_status_helper() -> None:
+    plan = _step_run("Plan idempotent PyPI upload")
+    verify = _step_run("Verify PyPI files and attestations")
+
+    assert _shell_function(plan, "pypi_http_status") == _shell_function(
+        verify, "pypi_http_status"
+    )
+    assert plan.count('pypi_http_status "$') == 1
+    assert verify.count('pypi_http_status "$') == 2
+
+
+def test_finalize_revalidates_live_state_and_protected_tag_before_publish() -> None:
+    script = _step_run("Bind tag and publish exact verified draft release")
+    _assert_finalize_order(script)
+    publication = script.index('published="$(')
+
+    for needle in (
+        'validate_draft_release "$release"',
+        "verify_release_tag_ruleset",
+        "verify_annotated_release_tag",
+    ):
+        index = script.rfind(needle, 0, publication)
+        assert index >= 0
+        mutated = script[:index] + script[index + len(needle) :]
+        with pytest.raises(AssertionError):
+            _assert_finalize_order(mutated)
+
+
+def _ruleset_payload() -> dict[str, Any]:
+    return {
+        "name": "Baseline: immutable release tags",
+        "target": "tag",
+        "source_type": "Organization",
+        "source": "buettgen-app",
+        "enforcement": "active",
+        "conditions": {
+            "ref_name": {
+                "exclude": [],
+                "include": ["refs/tags/v*"],
+            }
+        },
+        "rules": [
+            {"type": "update"},
+            {"type": "deletion"},
+            {"type": "non_fast_forward"},
+        ],
+        "bypass_actors": [],
+        "current_user_can_bypass": "never",
+    }
+
+
+def test_exact_no_bypass_release_tag_ruleset_is_accepted() -> None:
+    result = _run_ruleset_state(_ruleset_payload())
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing-update",
+        "missing-deletion",
+        "missing-non-fast-forward",
+        "inactive",
+        "excluded",
+        "wrong-include",
+        "bypass-actor",
+        "can-bypass",
+        "wrong-source",
+    ],
+)
+def test_weakened_release_tag_rulesets_are_rejected(mutation: str) -> None:
+    ruleset = _ruleset_payload()
+    if mutation.startswith("missing-"):
+        missing = mutation.removeprefix("missing-").replace("-", "_")
+        ruleset["rules"] = [
+            rule for rule in ruleset["rules"] if rule["type"] != missing
+        ]
+    elif mutation == "inactive":
+        ruleset["enforcement"] = "evaluate"
+    elif mutation == "excluded":
+        ruleset["conditions"]["ref_name"]["exclude"] = ["refs/tags/v0.6.1"]
+    elif mutation == "wrong-include":
+        ruleset["conditions"]["ref_name"]["include"] = ["refs/tags/release-*"]
+    elif mutation == "bypass-actor":
+        ruleset["bypass_actors"] = [{"actor_id": 1}]
+    elif mutation == "can-bypass":
+        ruleset["current_user_can_bypass"] = "always"
+    else:
+        ruleset["source"] = "other-org"
+
+    result = _run_ruleset_state(ruleset)
+
+    assert result.returncode != 0
+
+
+def test_annotated_tag_guard_accepts_only_exact_bound_tag() -> None:
+    tag_object_sha = "c" * 40
+    prefix = {
+        "ref": f"refs/tags/{RELEASE_TAG}-rc1",
+        "object": {"type": "tag", "sha": "d" * 40},
+    }
+    exact = {
+        "ref": f"refs/tags/{RELEASE_TAG}",
+        "object": {"type": "tag", "sha": tag_object_sha},
+    }
+    tag_object: dict[str, object] = {
+        "sha": tag_object_sha,
+        "tag": RELEASE_TAG,
+        "message": f"Release {RELEASE_TAG}",
+        "object": {"type": "commit", "sha": RELEASE_SHA},
+    }
+
+    result = _run_annotated_tag_guard([prefix, exact], tag_object)
+    assert result.returncode == 0, result.stderr
+
+    for refs in (
+        [],
+        [prefix],
+        [exact, exact],
+        [
+            {
+                "ref": f"refs/tags/{RELEASE_TAG}",
+                "object": {"type": "commit", "sha": RELEASE_SHA},
+            }
+        ],
+    ):
+        assert _run_annotated_tag_guard(refs, tag_object).returncode != 0
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        ("sha", "d" * 40),
+        ("tag", "v0.6.2"),
+        ("message", "unexpected"),
+        ("object.type", "tag"),
+        ("object.sha", "e" * 40),
+    ],
+)
+def test_mutated_annotated_tag_object_is_rejected(
+    path: str,
+    value: str,
+) -> None:
+    tag_object_sha = "c" * 40
+    refs = [
+        {
+            "ref": f"refs/tags/{RELEASE_TAG}",
+            "object": {"type": "tag", "sha": tag_object_sha},
+        }
+    ]
+    tag_object: dict[str, Any] = {
+        "sha": tag_object_sha,
+        "tag": RELEASE_TAG,
+        "message": f"Release {RELEASE_TAG}",
+        "object": {"type": "commit", "sha": RELEASE_SHA},
+    }
+    if "." in path:
+        parent, child = path.split(".", maxsplit=1)
+        tag_object[parent][child] = value
+    else:
+        tag_object[path] = value
+
+    assert _run_annotated_tag_guard(refs, tag_object).returncode != 0
+
+
+def test_exact_pypi_provenance_is_accepted() -> None:
+    result = _run_provenance_state(_provenance_payload())
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"repository": "attacker/repo"},
+        {"workflow": "other.yml"},
+        {"environment": "other"},
+        {"kind": "Other"},
+        {"api_version": 2},
+        {"attestation_version": 2},
+        {"name": "other.whl"},
+        {"digest": "a" * 64},
+        {"statement_type": "https://in-toto.io/Statement/v0.1"},
+        {"predicate_type": "https://example.invalid/predicate"},
+        {"predicate": {"unexpected": True}},
+    ],
+)
+def test_wrong_publisher_or_statement_semantics_are_rejected(
+    kwargs: dict[str, Any],
+) -> None:
+    result = _run_provenance_state(_provenance_payload(**kwargs))
+
+    assert result.returncode != 0
+
+
+def test_provenance_cannot_mix_publisher_and_attackers_statement() -> None:
+    attacker = _provenance_payload(repository="attacker/repo")
+    trusted_wrong = _provenance_payload(digest="a" * 64)
+    payload = {
+        "version": 1,
+        "attestation_bundles": [
+            attacker["attestation_bundles"][0],
+            trusted_wrong["attestation_bundles"][0],
+        ],
+    }
+
+    assert _run_provenance_state(payload).returncode != 0
+
+
+@pytest.mark.parametrize("mutation", ["missing", "malformed", "duplicate"])
+def test_missing_malformed_or_ambiguous_provenance_is_rejected(
+    mutation: str,
+) -> None:
+    payload = _provenance_payload()
+    if mutation == "missing":
+        payload["attestation_bundles"] = []
+    elif mutation == "malformed":
+        payload["attestation_bundles"][0]["attestations"][0]["envelope"][
+            "statement"
+        ] = "%%%"
+    else:
+        payload["attestation_bundles"].append(
+            copy.deepcopy(payload["attestation_bundles"][0])
+        )
+
+    assert _run_provenance_state(payload).returncode != 0
 
 
 def test_expected_mutable_draft_state_is_accepted() -> None:
@@ -432,15 +912,23 @@ def test_partial_and_complete_matching_pypi_states_are_accepted() -> None:
         {"name": "coverart_cli-0.6.1.tar.gz", "digest": "bbb"},
     ]
     partial: dict[str, object] = {
-        "info": {"version": "0.6.1"},
+        "info": {"version": "0.6.1", "yanked": False},
         "urls": [
-            {"filename": assets[0]["name"], "digests": {"sha256": "aaa"}},
+            {
+                "filename": assets[0]["name"],
+                "digests": {"sha256": "aaa"},
+                "yanked": False,
+            },
         ],
     }
     complete: dict[str, object] = {
-        "info": {"version": "0.6.1"},
+        "info": {"version": "0.6.1", "yanked": False},
         "urls": [
-            {"filename": asset["name"], "digests": {"sha256": asset["digest"]}}
+            {
+                "filename": asset["name"],
+                "digests": {"sha256": asset["digest"]},
+                "yanked": False,
+            }
             for asset in reversed(assets)
         ],
     }
@@ -454,11 +942,31 @@ def test_partial_and_complete_matching_pypi_states_are_accepted() -> None:
 @pytest.mark.parametrize(
     "urls",
     [
-        [{"filename": "coverart_cli-0.6.1.tar.gz", "digests": {"sha256": "bad"}}],
-        [{"filename": "unexpected.zip", "digests": {"sha256": "ccc"}}],
         [
-            {"filename": "coverart_cli-0.6.1.tar.gz", "digests": {"sha256": "bbb"}},
-            {"filename": "coverart_cli-0.6.1.tar.gz", "digests": {"sha256": "bbb"}},
+            {
+                "filename": "coverart_cli-0.6.1.tar.gz",
+                "digests": {"sha256": "bad"},
+                "yanked": False,
+            }
+        ],
+        [
+            {
+                "filename": "unexpected.zip",
+                "digests": {"sha256": "ccc"},
+                "yanked": False,
+            }
+        ],
+        [
+            {
+                "filename": "coverart_cli-0.6.1.tar.gz",
+                "digests": {"sha256": "bbb"},
+                "yanked": False,
+            },
+            {
+                "filename": "coverart_cli-0.6.1.tar.gz",
+                "digests": {"sha256": "bbb"},
+                "yanked": False,
+            },
         ],
     ],
 )
@@ -469,14 +977,55 @@ def test_poisoned_or_ambiguous_pypi_state_is_rejected(
         {"name": "coverart_cli-0.6.1-py3-none-any.whl", "digest": "aaa"},
         {"name": "coverart_cli-0.6.1.tar.gz", "digest": "bbb"},
     ]
-    release: dict[str, object] = {"info": {"version": "0.6.1"}, "urls": urls}
+    release: dict[str, object] = {
+        "info": {"version": "0.6.1", "yanked": False},
+        "urls": urls,
+    }
 
     assert _run_pypi_state(release, assets, complete=False).returncode != 0
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    ["release", "file", "missing_release", "missing_file"],
+)
+def test_yanked_or_schema_drifted_pypi_state_is_rejected(
+    mutation: str,
+) -> None:
+    assets = [
+        {"name": "coverart_cli-0.6.1-py3-none-any.whl", "digest": "aaa"},
+        {"name": "coverart_cli-0.6.1.tar.gz", "digest": "bbb"},
+    ]
+    release: dict[str, Any] = {
+        "info": {"version": "0.6.1", "yanked": False},
+        "urls": [
+            {
+                "filename": asset["name"],
+                "digests": {"sha256": asset["digest"]},
+                "yanked": False,
+            }
+            for asset in assets
+        ],
+    }
+    if mutation == "release":
+        release["info"]["yanked"] = True
+    elif mutation == "file":
+        release["urls"][0]["yanked"] = True
+    elif mutation == "missing_release":
+        release["info"].pop("yanked")
+    else:
+        release["urls"][0].pop("yanked")
+
+    assert _run_pypi_state(release, assets, complete=False).returncode != 0
+    assert _run_pypi_state(release, assets, complete=True).returncode != 0
+
+
 def test_wrong_pypi_version_is_rejected() -> None:
     assets = [{"name": "coverart_cli-0.6.1.tar.gz", "digest": "bbb"}]
-    release: dict[str, object] = {"info": {"version": "0.6.2"}, "urls": []}
+    release: dict[str, object] = {
+        "info": {"version": "0.6.2", "yanked": False},
+        "urls": [],
+    }
 
     assert _run_pypi_state(release, assets, complete=False).returncode != 0
 
