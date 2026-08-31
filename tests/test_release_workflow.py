@@ -842,29 +842,46 @@ def test_ci_proves_wheel_and_sdist_reproducibility() -> None:
 
 def test_release_network_calls_and_jobs_have_hard_timeouts() -> None:
     workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
-    helper = _shell_function(
-        _step_run("Verify PyPI files and attestations"),
-        "pypi_http_status",
-    )
+    verify = _step_run("Verify PyPI files and attestations")
+    helper = _shell_function(verify, "pypi_http_status")
+    poll = _shell_function(verify, "pypi_poll_json")
     upload = _step_run("Revalidate and upload draft assets by release ID")
+    sleep_lines = [
+        line.strip() for line in poll.splitlines() if line.strip().startswith("sleep ")
+    ]
 
     assert "--connect-timeout 10 --max-time 15" in helper
     assert "--connect-timeout 10 --max-time 120" in upload
     assert workflow.count("timeout-minutes: 30") == 6
-    assert 3 * 12 * (15 + 5) < 30 * 60
+    assert sleep_lines == ["sleep 5"]
+    sleep_seconds = int(sleep_lines[0].split()[1])
+    assert 3 * 12 * (15 + sleep_seconds) < 30 * 60
 
 
 @pytest.mark.parametrize(
-    ("sequence", "expected", "calls"),
+    ("sequence", "predicate_sequence", "expected", "calls"),
     [
-        ("200", "success\n", "1"),
-        ("000 503 200", "success\n", "3"),
-        ("503 503 503 503 503 503 503 503 503 503 503 503", "failure\n", "12"),
+        ("200", "true", "success\n", "1"),
+        ("000 503 200", "false false true", "success\n", "3"),
+        ("200 200", "false true", "success\n", "2"),
+        (
+            "503 503 503 503 503 503 503 503 503 503 503 503",
+            "false false false false false false false false false false false false",
+            "failure\n",
+            "12",
+        ),
+        (
+            "200 200 200 200 200 200 200 200 200 200 200 200",
+            "false false false false false false false false false false false false",
+            "failure\n",
+            "12",
+        ),
     ],
 )
 def test_pypi_poll_retries_and_exhausts_exactly(
     tmp_path: Path,
     sequence: str,
+    predicate_sequence: str,
     expected: str,
     calls: str,
 ) -> None:
@@ -874,6 +891,7 @@ def test_pypi_poll_retries_and_exhausts_exactly(
 {poll}
 printf 0 > calls
 sequence=({sequence})
+predicate_sequence=({predicate_sequence})
 pypi_http_status() {{
   local n
   n="$(cat calls)"
@@ -882,7 +900,9 @@ pypi_http_status() {{
   printf '%s\n' "${{sequence[$((n - 1))]}}"
 }}
 predicate() {{
-  return 0
+  local n
+  n="$(cat calls)"
+  [ "${{predicate_sequence[$((n - 1))]}}" = "true" ]
 }}
 sleep() {{
   :
