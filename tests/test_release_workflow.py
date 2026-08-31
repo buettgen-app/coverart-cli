@@ -76,6 +76,44 @@ def _run_draft_state(release: dict[str, object]) -> subprocess.CompletedProcess[
     )
 
 
+def _run_dispatch_state(
+    release: dict[str, object],
+) -> subprocess.CompletedProcess[str]:
+    jq = shutil.which("jq")
+    assert jq is not None, "jq is required to verify the release workflow"
+    return subprocess.run(
+        [
+            jq,
+            "-e",
+            "--arg",
+            "tag",
+            RELEASE_TAG,
+            "--arg",
+            "sha",
+            RELEASE_SHA,
+            _folded_env_value("DISPATCH_RELEASE_JQ"),
+        ],
+        input=json.dumps(release),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _run_immutable_release_state(
+    settings: dict[str, object],
+) -> subprocess.CompletedProcess[str]:
+    jq = shutil.which("jq")
+    assert jq is not None, "jq is required to verify the release workflow"
+    return subprocess.run(
+        [jq, "-e", _folded_env_value("IMMUTABLE_RELEASES_JQ")],
+        input=json.dumps(settings),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
 def _run_recoverable_state(
     release: dict[str, object],
 ) -> subprocess.CompletedProcess[str]:
@@ -275,6 +313,7 @@ def _assert_finalize_order(script: str) -> None:
     state_check = before.rfind('validate_draft_release "$release"')
     ruleset_check = before.rfind("verify_release_tag_ruleset")
     tag_check = before.rfind("verify_annotated_release_tag")
+    immutable_check = before.rfind("verify_immutable_release_policy")
     assert -1 not in {
         tag_creation,
         main_read,
@@ -283,6 +322,7 @@ def _assert_finalize_order(script: str) -> None:
         state_check,
         ruleset_check,
         tag_check,
+        immutable_check,
     }
     assert (
         tag_creation
@@ -292,9 +332,12 @@ def _assert_finalize_order(script: str) -> None:
         < state_check
         < ruleset_check
         < tag_check
+        < immutable_check
         < publication
     )
-    guarded_tail = script[tag_check + len("verify_annotated_release_tag") : publication]
+    guarded_tail = script[
+        immutable_check + len("verify_immutable_release_policy") : publication
+    ]
     assert "--method POST" not in guarded_tail
     assert "--method PATCH" not in guarded_tail
     assert "--method DELETE" not in guarded_tail
@@ -385,6 +428,71 @@ def test_paginated_api_failure_stops_before_release_selection() -> None:
     assert result.stdout == ""
 
 
+def test_dispatch_accepts_exact_draft_and_exact_immutable_rerun() -> None:
+    base: dict[str, object] = {
+        "prerelease": False,
+        "tag_name": RELEASE_TAG,
+        "target_commitish": RELEASE_SHA,
+    }
+
+    for draft, immutable in ((True, False), (False, True)):
+        release = {**base, "draft": draft, "immutable": immutable}
+        result = _run_dispatch_state(release)
+        assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["prerelease", "tag", "sha", "mutable-published", "immutable-draft"],
+)
+def test_dispatch_rejects_wrong_identity_or_unsafe_state(mutation: str) -> None:
+    release: dict[str, object] = {
+        "prerelease": False,
+        "tag_name": RELEASE_TAG,
+        "target_commitish": RELEASE_SHA,
+        "draft": True,
+        "immutable": False,
+    }
+    if mutation == "prerelease":
+        release["prerelease"] = True
+    elif mutation == "tag":
+        release["tag_name"] = "v0.6.2"
+    elif mutation == "sha":
+        release["target_commitish"] = BOUND_SHA
+    elif mutation == "mutable-published":
+        release["draft"] = False
+    else:
+        release["immutable"] = True
+
+    assert _run_dispatch_state(release).returncode != 0
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"enabled": False, "enforced_by_owner": False},
+        {"enforced_by_owner": False},
+        {"enabled": True},
+        {"enabled": "true", "enforced_by_owner": False},
+        {"enabled": True, "enforced_by_owner": "false"},
+    ],
+)
+def test_disabled_or_schema_drifted_immutable_release_setting_is_rejected(
+    settings: dict[str, object],
+) -> None:
+    assert _run_immutable_release_state(settings).returncode != 0
+
+
+def test_enabled_immutable_release_setting_is_accepted() -> None:
+    for enforced_by_owner in (False, True):
+        settings = {
+            "enabled": True,
+            "enforced_by_owner": enforced_by_owner,
+        }
+        result = _run_immutable_release_state(settings)
+        assert result.returncode == 0, result.stderr
+
+
 def test_draft_is_revalidated_and_published_at_the_bound_commit() -> None:
     """Finalize must not trust mutable draft state captured before build and tests."""
     workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
@@ -395,6 +503,12 @@ def test_draft_is_revalidated_and_published_at_the_bound_commit() -> None:
     assert 'git merge-base --is-ancestor "$VALIDATED_DRAFT_TARGET" HEAD' in workflow
     assert "Release recovery includes changes outside the explicit release repair." in workflow
     assert "name: Resolve live release phase" in workflow
+    assert '"$DISPATCH_RELEASE_JQ" <<<"$release"' in workflow
+    assert "Published dispatch recovery requires the exact annotated release tag." in workflow
+    assert "RELEASE_SETTINGS_TOKEN: ${{ secrets.RELEASE_SETTINGS_TOKEN }}" in workflow
+    assert '"repos/$GITHUB_REPOSITORY/immutable-releases"' in workflow
+    assert '"X-GitHub-Api-Version: 2026-03-10"' in workflow
+    assert workflow.count("verify_immutable_release_policy") == 3
     assert "name: Bind mutable draft to exact verified source" in workflow
     assert workflow.count('-f tag_name="$RELEASE_TAG"') == 2
     assert workflow.count('-f target_commitish="$EXPECTED_RELEASE_SHA"') == 2
@@ -412,6 +526,7 @@ def test_draft_is_revalidated_and_published_at_the_bound_commit() -> None:
     assert "verify_annotated_release_tag" in workflow
     assert '([.rules[].type] | index("update")) != null' in workflow
     assert 'validate_draft_release "$release"' in workflow
+    assert workflow.count(".immutable == true") >= 4
     assert workflow.count('gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main"') == 3
     assert workflow.count("git/matching-refs/tags/$RELEASE_TAG") >= 4
     assert '"$EXACT_TAG_JQ" <<<"$refs"' in workflow
@@ -426,6 +541,16 @@ def test_draft_is_revalidated_and_published_at_the_bound_commit() -> None:
     assert "Verify PyPI provenance cryptographically" in workflow
     assert "--require-hashes -r requirements-attestation.txt" in workflow
     assert "pypi-attestations verify pypi" in workflow
+
+
+def test_published_release_reuses_strict_annotated_tag_guard() -> None:
+    finalize = _step_run("Bind tag and publish exact verified draft release")
+    published = _step_run("Verify published release")
+
+    assert _shell_function(
+        finalize, "verify_annotated_release_tag"
+    ) == _shell_function(published, "verify_annotated_release_tag")
+    assert published.count("\nverify_annotated_release_tag\n") == 1
 
 
 @pytest.mark.parametrize(
@@ -476,6 +601,19 @@ fi
     assert result.returncode == 0, result.stderr
     assert result.stdout == expected
     assert (tmp_path / "calls").read_text() == calls
+
+
+def test_release_network_calls_and_jobs_have_hard_timeouts() -> None:
+    workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    helper = _shell_function(
+        _step_run("Verify PyPI files and attestations"),
+        "pypi_http_status",
+    )
+    upload = _step_run("Revalidate and upload draft assets by release ID")
+
+    assert "--connect-timeout 10 --max-time 60" in helper
+    assert "--connect-timeout 10 --max-time 120" in upload
+    assert workflow.count("timeout-minutes: 30") == 6
 
 
 def test_every_pypi_lookup_uses_the_tested_status_helper() -> None:

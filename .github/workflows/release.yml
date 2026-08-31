@@ -48,6 +48,16 @@ env:
     .prerelease == false and
     .tag_name == $tag and
     .target_commitish == $sha
+  DISPATCH_RELEASE_JQ: >-
+    .prerelease == false and
+    .tag_name == $tag and
+    .target_commitish == $sha and
+    ((.draft == true and .immutable == false) or
+     (.draft == false and .immutable == true))
+  IMMUTABLE_RELEASES_JQ: >-
+    (.enabled | type) == "boolean" and
+    .enabled == true and
+    (.enforced_by_owner | type) == "boolean"
   RECOVERABLE_RELEASE_JQ: >-
     (.id | tostring) == $id and
     .prerelease == false and
@@ -132,6 +142,7 @@ jobs:
   validate:
     name: Validate release
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       actions: read
       contents: read
@@ -236,16 +247,20 @@ jobs:
           fi
 
           if [ "$GITHUB_EVENT_NAME" = "repository_dispatch" ]; then
-            if [ "$draft" != "true" ] || [ "$immutable" != "false" ]; then
-              echo "::error::$RELEASE_TAG must be a mutable draft before verified publication."
+            if ! jq -e \
+              --arg tag "$RELEASE_TAG" \
+              --arg sha "$RELEASE_SHA" \
+              "$DISPATCH_RELEASE_JQ" <<<"$release" >/dev/null; then
+              echo "::error::$RELEASE_TAG is not an exact dispatch-recoverable release."
               exit 1
             fi
-            if [ "$target_commitish" != "$RELEASE_SHA" ]; then
-              echo "::error::$RELEASE_TAG does not target the dispatched release SHA."
-              exit 1
-            fi
-            if [ -n "$tag_sha" ] && [ "$tag_sha" != "$RELEASE_SHA" ]; then
-              echo "::error::$RELEASE_TAG is already bound to another commit."
+            if [ "$draft" = "true" ]; then
+              if [ -n "$tag_sha" ] && [ "$tag_sha" != "$RELEASE_SHA" ]; then
+                echo "::error::$RELEASE_TAG is already bound to another commit."
+                exit 1
+              fi
+            elif [ -z "$tag_sha" ] || [ "$tag_sha" != "$RELEASE_SHA" ]; then
+              echo "::error::Published dispatch recovery requires the exact annotated release tag."
               exit 1
             fi
             release_ref="${tag_sha:-$RELEASE_SHA}"
@@ -369,6 +384,7 @@ jobs:
     name: Release test (py${{ matrix.python-version }})
     needs: validate
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: true
       matrix:
@@ -395,6 +411,7 @@ jobs:
     name: Build and verify release artifacts
     needs: [validate, test]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -490,6 +507,7 @@ jobs:
     name: Finalize GitHub release
     needs: [validate, build]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:
@@ -653,6 +671,7 @@ jobs:
             encoded_name="$(jq -nr --arg name "$asset_name" '$name | @uri')"
             uploaded="$(
               curl --fail-with-body --silent --show-error \
+                --connect-timeout 10 --max-time 120 \
                 --request POST \
                 --header "Accept: application/vnd.github+json" \
                 --header "Authorization: Bearer $GH_TOKEN" \
@@ -673,6 +692,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_ID: ${{ needs.validate.outputs.release_id }}
           EXPECTED_RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
+          RELEASE_SETTINGS_TOKEN: ${{ secrets.RELEASE_SETTINGS_TOKEN }}
         run: |
           verify_workflow_identity() {
             local current_main="$1"
@@ -693,6 +713,24 @@ jobs:
             )"
             if [ "$expected_workflows" != "$current_workflows" ]; then
               echo "::error::Release source workflows differ from current main."
+              return 1
+            fi
+          }
+
+          verify_immutable_release_policy() {
+            local settings
+            if [ -z "${RELEASE_SETTINGS_TOKEN:-}" ]; then
+              echo "::error::RELEASE_SETTINGS_TOKEN with Administration(read) is required to verify immutable releases."
+              return 1
+            fi
+            settings="$(
+              GH_TOKEN="$RELEASE_SETTINGS_TOKEN" gh api --method GET \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2026-03-10" \
+                "repos/$GITHUB_REPOSITORY/immutable-releases"
+            )"
+            if ! jq -e "$IMMUTABLE_RELEASES_JQ" <<<"$settings" >/dev/null; then
+              echo "::error::Immutable GitHub releases are not enabled for this repository."
               return 1
             fi
           }
@@ -872,6 +910,7 @@ jobs:
             verify_annotated_release_tag
           }
 
+          verify_immutable_release_policy
           verify_release_tag_ruleset
           ensure_annotated_release_tag
 
@@ -883,6 +922,7 @@ jobs:
           validate_draft_release "$release"
           verify_release_tag_ruleset
           verify_annotated_release_tag
+          verify_immutable_release_policy
 
           published="$(
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
@@ -899,6 +939,7 @@ jobs:
             --arg body "$release_body" \
             '(.id | tostring) == $id and
              .draft == false and
+             .immutable == true and
              .prerelease == false and
              .tag_name == $tag and
              .target_commitish == $sha and
@@ -920,6 +961,40 @@ jobs:
           RELEASE_ID: ${{ needs.validate.outputs.release_id }}
           EXPECTED_RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
         run: |
+          verify_annotated_release_tag() {
+            local refs exact_ref tag_object_sha tag_object tag_message
+            refs="$(
+              gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$RELEASE_TAG"
+            )"
+            exact_ref="$(
+              jq -c --arg ref "refs/tags/$RELEASE_TAG" \
+                "$EXACT_TAG_JQ" <<<"$refs"
+            )"
+            if [ "$exact_ref" = "null" ] ||
+               [ "$(jq -r .object.type <<<"$exact_ref")" != "tag" ]; then
+              echo "::error::$RELEASE_TAG is not the expected annotated release tag."
+              return 1
+            fi
+            tag_object_sha="$(jq -er '.object.sha | select(test("^[0-9a-f]{40}$"))' <<<"$exact_ref")"
+            tag_object="$(
+              gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_object_sha"
+            )"
+            tag_message="Release $RELEASE_TAG"
+            if ! jq -e \
+              --arg direct_sha "$tag_object_sha" \
+              --arg tag "$RELEASE_TAG" \
+              --arg message "$tag_message" \
+              --arg sha "$EXPECTED_RELEASE_SHA" \
+              '.sha == $direct_sha and
+               .tag == $tag and
+               .message == $message and
+               .object.type == "commit" and
+               .object.sha == $sha' <<<"$tag_object" >/dev/null; then
+              echo "::error::$RELEASE_TAG does not bind the exact verified release commit."
+              return 1
+            fi
+          }
+
           version="${RELEASE_TAG#v}"
           release_body="$(python - "$version" <<'PY'
           import re
@@ -961,42 +1036,13 @@ jobs:
             gh release verify-asset "$RELEASE_TAG" "$asset" --repo "$GITHUB_REPOSITORY"
           done
 
-          tag_refs="$(
-            gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$RELEASE_TAG"
-          )"
-          tag_ref="$(
-            jq -c --arg ref "refs/tags/$RELEASE_TAG" \
-              "$EXACT_TAG_JQ" <<<"$tag_refs"
-          )"
-          if [ "$tag_ref" = "null" ]; then
-            echo "::error::$RELEASE_TAG is missing; refusing PyPI publication."
-            exit 1
-          fi
-          tag_type="$(jq -r .object.type <<<"$tag_ref")"
-          tag_sha="$(jq -r .object.sha <<<"$tag_ref")"
-          if [ "$tag_type" = "tag" ]; then
-            tag_object="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_sha")"
-            if ! jq -e \
-              --arg direct_sha "$tag_sha" \
-              --arg tag "$RELEASE_TAG" \
-              --arg sha "$EXPECTED_RELEASE_SHA" \
-              '.sha == $direct_sha and
-               .tag == $tag and
-               .object.type == "commit" and
-               .object.sha == $sha' <<<"$tag_object" >/dev/null; then
-              echo "::error::$RELEASE_TAG annotated tag does not bind $EXPECTED_RELEASE_SHA."
-              exit 1
-            fi
-          elif [ "$tag_type" != "commit" ] ||
-               [ "$tag_sha" != "$EXPECTED_RELEASE_SHA" ]; then
-            echo "::error::$RELEASE_TAG is not bound to $EXPECTED_RELEASE_SHA; refusing PyPI publication."
-            exit 1
-          fi
+          verify_annotated_release_tag
 
   publish:
     name: Publish to PyPI
     needs: finalize
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       id-token: write
     environment:
@@ -1016,6 +1062,7 @@ jobs:
             local status
             if ! status="$(
               curl --silent --show-error --location \
+                --connect-timeout 10 --max-time 60 \
                 --output "$output" \
                 --write-out '%{http_code}' \
                 "$@"
@@ -1097,6 +1144,7 @@ jobs:
             local status
             if ! status="$(
               curl --silent --show-error --location \
+                --connect-timeout 10 --max-time 60 \
                 --output "$output" \
                 --write-out '%{http_code}' \
                 "$@"
@@ -1160,10 +1208,10 @@ jobs:
     name: Verify PyPI provenance cryptographically
     needs: [validate, publish]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       actions: read
       contents: read
-    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1188,6 +1236,7 @@ jobs:
             local status
             if ! status="$(
               curl --silent --show-error --location \
+                --connect-timeout 10 --max-time 60 \
                 --output "$output" \
                 --write-out '%{http_code}' \
                 "$@"

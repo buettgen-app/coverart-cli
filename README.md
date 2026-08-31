@@ -175,7 +175,8 @@ Commits to `main` follow [Conventional Commits](https://www.conventionalcommits.
 | `feat: …`                       | minor bump (0.3.0 → 0.4.0) |
 | `fix: …`                        | patch bump (0.3.0 → 0.3.1) |
 | `feat!: …` / `BREAKING CHANGE:` | major bump (0.3.0 → 1.0.0) |
-| `docs:`, `refactor:`, `perf:`   | changelog entry, no bump   |
+| `perf: …`                       | patch bump (0.3.0 → 0.3.1) |
+| `docs:`, `refactor:`            | changelog entry, no bump   |
 | `chore:`, `ci:`, `test:`        | hidden in changelog        |
 
 The `Prepare release` workflow uses the repository-scoped `GITHUB_TOKEN` to
@@ -188,17 +189,20 @@ builds one wheel and source distribution, attaches those exact files to the
 release, publishes them to PyPI with OIDC attestations, and cryptographically
 verifies the exact local artifacts against PyPI's recorded provenance.
 
-No release App, private key, or personal access token is required. In
+The normal release writes use only the repository-scoped `GITHUB_TOKEN`.
+Configure `RELEASE_SETTINGS_TOKEN` as a fine-grained token limited to this
+repository with **Administration: read**; it is used only to verify, immediately
+before publication, that GitHub Immutable Releases remain enabled. In
 `Settings → Actions → General → Workflow permissions`, enable **Allow GitHub
 Actions to create and approve pull requests**. GitHub may hold checks on a
-Release Please PR until a maintainer selects **Approve workflows to run**; this
-approval remains part of the manual release gate.
+Release Please PR until a maintainer selects **Approve workflows to run**.
 
 The PyPI Trusted Publisher must be configured for GitHub owner `buettgen-app`,
 repository `coverart-cli`, workflow `release.yml`, and environment `pypi`.
-The active `refs/tags/v*` ruleset must block tag updates, deletion, and
-non-fast-forward changes without bypass actors; publication fails closed if
-that protection is missing or weakened. That filename is the stable
+Enable GitHub Immutable Releases for the repository. The active
+`refs/tags/v*` ruleset must block tag updates, deletion, and non-fast-forward
+changes without bypass actors; publication fails closed if either repository
+protection is missing or weakened. That filename is the stable
 publish identity even though Release Please itself runs in
 `prepare-release.yml`. Do not create release tags or upload distributions by
 hand. A failed publish can be retried without introducing a second release
