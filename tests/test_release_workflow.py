@@ -390,7 +390,7 @@ def test_draft_is_revalidated_and_published_at_the_bound_commit() -> None:
     workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
 
     assert 'release_ref="$GITHUB_SHA"' in workflow
-    assert 'release_ref="$tag_sha"' not in workflow
+    assert 'release_ref="$tag_sha"' in workflow
     assert "target=$target_commitish" in workflow
     assert 'git merge-base --is-ancestor "$VALIDATED_DRAFT_TARGET" HEAD' in workflow
     assert "Release recovery includes changes outside the explicit release repair." in workflow
