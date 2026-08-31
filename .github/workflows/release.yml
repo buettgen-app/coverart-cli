@@ -81,11 +81,15 @@ env:
     .source_type == "Organization" and
     .source == "buettgen-app" and
     .enforcement == "active" and
+    (.conditions.ref_name.exclude | type) == "array" and
     (.conditions.ref_name.exclude | length) == 0 and
+    (.conditions.ref_name.include | type) == "array" and
     any(.conditions.ref_name.include[]; . == "refs/tags/v*") and
+    (.rules | type) == "array" and
     ([.rules[].type] | index("update")) != null and
     ([.rules[].type] | index("deletion")) != null and
     ([.rules[].type] | index("non_fast_forward")) != null and
+    (.bypass_actors | type) == "array" and
     (.bypass_actors | length) == 0 and
     .current_user_can_bypass == "never"
   PYPI_EXISTING_JQ: >-

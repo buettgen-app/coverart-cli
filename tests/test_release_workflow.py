@@ -545,25 +545,65 @@ def test_exact_no_bypass_release_tag_ruleset_is_accepted() -> None:
         "missing-non-fast-forward",
         "inactive",
         "excluded",
+        "missing-exclude",
+        "null-exclude",
+        "wrong-exclude-type",
         "wrong-include",
+        "missing-include",
+        "null-include",
+        "wrong-include-type",
+        "missing-rules",
+        "null-rules",
+        "wrong-rules-type",
         "bypass-actor",
+        "missing-bypass-actors",
+        "null-bypass-actors",
+        "wrong-bypass-type",
         "can-bypass",
         "wrong-source",
     ],
 )
 def test_weakened_release_tag_rulesets_are_rejected(mutation: str) -> None:
     ruleset = _ruleset_payload()
-    if mutation.startswith("missing-"):
+    if mutation in {
+        "missing-update",
+        "missing-deletion",
+        "missing-non-fast-forward",
+    }:
         missing = mutation.removeprefix("missing-").replace("-", "_")
         ruleset["rules"] = [rule for rule in ruleset["rules"] if rule["type"] != missing]
     elif mutation == "inactive":
         ruleset["enforcement"] = "evaluate"
     elif mutation == "excluded":
         ruleset["conditions"]["ref_name"]["exclude"] = ["refs/tags/v0.6.1"]
+    elif mutation == "missing-exclude":
+        ruleset["conditions"]["ref_name"].pop("exclude")
+    elif mutation == "null-exclude":
+        ruleset["conditions"]["ref_name"]["exclude"] = None
+    elif mutation == "wrong-exclude-type":
+        ruleset["conditions"]["ref_name"]["exclude"] = {}
     elif mutation == "wrong-include":
         ruleset["conditions"]["ref_name"]["include"] = ["refs/tags/release-*"]
+    elif mutation == "missing-include":
+        ruleset["conditions"]["ref_name"].pop("include")
+    elif mutation == "null-include":
+        ruleset["conditions"]["ref_name"]["include"] = None
+    elif mutation == "wrong-include-type":
+        ruleset["conditions"]["ref_name"]["include"] = {}
+    elif mutation == "missing-rules":
+        ruleset.pop("rules")
+    elif mutation == "null-rules":
+        ruleset["rules"] = None
+    elif mutation == "wrong-rules-type":
+        ruleset["rules"] = {}
     elif mutation == "bypass-actor":
         ruleset["bypass_actors"] = [{"actor_id": 1}]
+    elif mutation == "missing-bypass-actors":
+        ruleset.pop("bypass_actors")
+    elif mutation == "null-bypass-actors":
+        ruleset["bypass_actors"] = None
+    elif mutation == "wrong-bypass-type":
+        ruleset["bypass_actors"] = {}
     elif mutation == "can-bypass":
         ruleset["current_user_can_bypass"] = "always"
     else:
