@@ -738,8 +738,8 @@ def test_draft_is_revalidated_and_published_at_the_bound_commit() -> None:
     assert "packages-dir: pypi-dist/" in workflow
     assert "skip-existing" not in workflow
     assert '"$PYPI_EXISTING_JQ" "$response"' in workflow
-    assert '"$PYPI_COMPLETE_JQ" "$response"' in workflow
-    assert '"$PYPI_PROVENANCE_JQ" "$provenance"' in workflow
+    assert '"$PYPI_COMPLETE_JQ" "$1"' in workflow
+    assert '"$PYPI_PROVENANCE_JQ" "$1"' in workflow
     assert "integrity/coverart-cli/$version/$encoded_name/provenance" in workflow
     assert "Verify PyPI provenance cryptographically" in workflow
     assert "--require-hashes -r requirements-attestation.txt" in workflow
