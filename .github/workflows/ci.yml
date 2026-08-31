@@ -13,6 +13,7 @@ jobs:
   test:
     name: test (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -31,8 +32,10 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check --require-hashes -r requirements-ci.txt
           python -m pip install --disable-pip-version-check --no-deps --no-build-isolation -e .
-      - name: Lint
-        run: ruff check .
+      - name: Lint and format
+        run: |
+          ruff check .
+          ruff format --check .
       - name: Type check
         run: pyrefly check
       - name: Install FFmpeg test oracle
@@ -46,6 +49,7 @@ jobs:
   windows-smoke:
     name: windows secure-boundary smoke
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -63,6 +67,7 @@ jobs:
   macos-metadata:
     name: macOS metadata preservation
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -85,6 +90,7 @@ jobs:
     name: smoke (install wheel + run end-to-end)
     needs: test
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -158,3 +164,71 @@ jobs:
         run: |
           /tmp/smoke-venv/bin/coverart /tmp/fixture-lib --report-only --report-html /tmp/report.html
           test -s /tmp/report.html && echo "✓ report written ($(wc -c </tmp/report.html) bytes)"
+
+  attestation-lock:
+    name: Attestation verifier lock
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.7"
+      - name: Verify canonical hash lock
+        run: |
+          uv pip compile requirements-attestation.in --universal --generate-hashes --output-file requirements-attestation.txt
+          git diff --exit-code -- requirements-attestation.txt
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Smoke-test locked verifier
+        run: |
+          python -m pip install --disable-pip-version-check \
+            --only-binary=:all: --require-hashes -r requirements-attestation.txt
+          pypi-attestations --help > /dev/null
+
+  reproducible-artifacts:
+    name: Reproducible wheel and sdist
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-build.txt
+      - name: Install locked release tools
+        run: |
+          python -m pip install --disable-pip-version-check \
+            --require-hashes -r requirements-build.txt
+      - name: Build twice and compare exact artifacts
+        env:
+          SOURCE_DATE_EPOCH: "1580601600"
+        run: |
+          python -m build --no-isolation --outdir /tmp/repro-one
+          python -m build --no-isolation --outdir /tmp/repro-two
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+
+          def manifest(directory: str) -> list[tuple[str, str]]:
+              return [
+                  (artifact.name, hashlib.sha256(artifact.read_bytes()).hexdigest())
+                  for artifact in sorted(Path(directory).iterdir())
+                  if artifact.is_file()
+              ]
+
+          first = manifest("/tmp/repro-one")
+          second = manifest("/tmp/repro-two")
+          if len(first) != 2 or first != second:
+              raise SystemExit("wheel and sdist builds are not reproducible")
+          PY

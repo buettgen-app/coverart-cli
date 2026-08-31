@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * close CodeQL review findings ([d35f7e3](https://github.com/buettgen-app/coverart-cli/commit/d35f7e303d15c68e96cb7a37ce2d135462d2e791))
 * complete artwork integrity and release hardening ([37f72cb](https://github.com/buettgen-app/coverart-cli/commit/37f72cbef812e137eb05bd4629c50bc7ea9beb1d))
 * enforce artwork and dry-run integrity ([cba3131](https://github.com/buettgen-app/coverart-cli/commit/cba3131e582afd5526e9b0185e6558308dd34fbe))
+* **release:** bind publication to protected tags, exact artifacts, and verified provenance
 * restore cross-platform CI gates ([42f4c32](https://github.com/buettgen-app/coverart-cli/commit/42f4c32cd5b90ab54cdbeb12651be705ba66f6be))
 
 ## [0.6.0](https://github.com/buettgen-app/coverart-cli/compare/v0.5.0...v0.6.0) (2026-08-23)
