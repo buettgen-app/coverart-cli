@@ -238,6 +238,7 @@ def test_embed_cover_falls_back_when_kernel_copy_is_unsupported(
     assert existing_embedded_size(track) == len(VALID_JPEG)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX concurrent same-inode mutation oracle")
 def test_embed_cover_rejects_same_inode_change_after_copy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
