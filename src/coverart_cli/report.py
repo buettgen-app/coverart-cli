@@ -145,76 +145,71 @@ def scan_library(root: Path, *, embed_thumbs: bool = True) -> list[AlbumEntry]:
         if any(part.startswith(".") for part in rel.parts):
             continue
         try:
-            target_context = _open_album_target(root, target)
-            album_fd = target_context.__enter__()
-            with os.scandir(album_fd) as scanned:
-                audio_files = [
-                    d / entry.name
-                    for entry in scanned
-                    if entry.is_file(follow_symlinks=False)
-                    and Path(entry.name).suffix.lower() in AUDIO_EXTS
-                ]
+            with _open_album_target(root, target) as album_fd:
+                with os.scandir(album_fd) as scanned:
+                    audio_files = [
+                        d / entry.name
+                        for entry in scanned
+                        if entry.is_file(follow_symlinks=False)
+                        and Path(entry.name).suffix.lower() in AUDIO_EXTS
+                    ]
+                if not audio_files:
+                    continue
+
+                info = os.fstat(album_fd)
+                album_identity = (info.st_dev, info.st_ino)
+                if album_identity != target.identity:
+                    continue
+                sidecar_probe, _ = probe_sidecars(
+                    d,
+                    expected_parent_identity=album_identity,
+                    directory_fd=album_fd,
+                )
+                sidecar = sidecar_probe.path if sidecar_probe is not None else None
+                all_embedded = sidecar is None and all(
+                    existing_embedded_size(
+                        f,
+                        expected_identity=file_identity(f, dir_fd=album_fd),
+                        expected_parent_identity=album_identity,
+                        validation_cache=validation_cache,
+                        parent_fd=album_fd,
+                    )
+                    > 0
+                    for f in audio_files
+                )
+                has_any_cover = bool(sidecar) or all_embedded
+
+                cover_data_uri: str | None = None
+                if embed_thumbs and sidecar and thumbnail_bytes < MAX_REPORT_THUMB_BYTES:
+                    assert sidecar_probe is not None
+                    candidate_uri = _make_data_uri(
+                        sidecar,
+                        expected_parent_identity=album_identity,
+                        validated_cover=sidecar_probe.cover,
+                    )
+                    if candidate_uri is not None:
+                        candidate_size = len(candidate_uri.encode("ascii"))
+                        if thumbnail_bytes + candidate_size <= MAX_REPORT_THUMB_BYTES:
+                            cover_data_uri = candidate_uri
+                            thumbnail_bytes += candidate_size
+
+                # Path heuristic: <root>/<artist>/<album>/  →  parent name = artist
+                artist = d.parent.name if d.parent != root else "Unknown Artist"
+                album = d.name
+
+                entries.append(
+                    AlbumEntry(
+                        artist=artist,
+                        album=album,
+                        path=str(rel),
+                        has_cover=has_any_cover,
+                        source=_detect_source(d, has_any_cover),
+                        file_count=len(audio_files),
+                        cover_data_uri=cover_data_uri,
+                    )
+                )
         except (PermissionError, OSError) as e:
             log.warning("cannot read %s: %s", d, e)
-            continue
-        try:
-            if not audio_files:
-                continue
-
-            info = os.fstat(album_fd)
-            album_identity = (info.st_dev, info.st_ino)
-            if album_identity != target.identity:
-                continue
-            sidecar_probe, _ = probe_sidecars(
-                d,
-                expected_parent_identity=album_identity,
-                directory_fd=album_fd,
-            )
-            sidecar = sidecar_probe.path if sidecar_probe is not None else None
-            all_embedded = sidecar is None and all(
-                existing_embedded_size(
-                    f,
-                    expected_identity=file_identity(f, dir_fd=album_fd),
-                    expected_parent_identity=album_identity,
-                    validation_cache=validation_cache,
-                    parent_fd=album_fd,
-                )
-                > 0
-                for f in audio_files
-            )
-            has_any_cover = bool(sidecar) or all_embedded
-
-            cover_data_uri: str | None = None
-            if embed_thumbs and sidecar and thumbnail_bytes < MAX_REPORT_THUMB_BYTES:
-                assert sidecar_probe is not None
-                candidate_uri = _make_data_uri(
-                    sidecar,
-                    expected_parent_identity=album_identity,
-                    validated_cover=sidecar_probe.cover,
-                )
-                if candidate_uri is not None:
-                    candidate_size = len(candidate_uri.encode("ascii"))
-                    if thumbnail_bytes + candidate_size <= MAX_REPORT_THUMB_BYTES:
-                        cover_data_uri = candidate_uri
-                        thumbnail_bytes += candidate_size
-
-            # Path heuristic: <root>/<artist>/<album>/  →  parent name = artist
-            artist = d.parent.name if d.parent != root else "Unknown Artist"
-            album = d.name
-
-            entries.append(
-                AlbumEntry(
-                    artist=artist,
-                    album=album,
-                    path=str(rel),
-                    has_cover=has_any_cover,
-                    source=_detect_source(d, has_any_cover),
-                    file_count=len(audio_files),
-                    cover_data_uri=cover_data_uri,
-                )
-            )
-        finally:
-            target_context.__exit__(None, None, None)
     return entries
 
 

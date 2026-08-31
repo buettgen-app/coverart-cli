@@ -11,17 +11,17 @@ import pytest
 from mutagen.id3 import APIC, ID3
 from PIL import Image
 
-from coverart_cli.report import (
-    MAX_REPORT_THUMB_BYTES,
-    MAX_THUMB_BYTES,
-    MAX_THUMB_DIMENSION,
-    AlbumEntry,
-    _make_data_uri,
-    build_report,
-    scan_library,
-)
+from coverart_cli import report, tagging
 
 from .image_fixtures import VALID_JPEG, VALID_PNG  # pyrefly: ignore [missing-import]
+
+MAX_REPORT_THUMB_BYTES = report.MAX_REPORT_THUMB_BYTES
+MAX_THUMB_BYTES = report.MAX_THUMB_BYTES
+MAX_THUMB_DIMENSION = report.MAX_THUMB_DIMENSION
+AlbumEntry = report.AlbumEntry
+_make_data_uri = report._make_data_uri
+build_report = report.build_report
+scan_library = report.scan_library
 
 
 def _make_jpeg(path: Path, payload_size: int = 3000) -> None:
@@ -91,8 +91,6 @@ def test_make_data_uri_missing_file(tmp_path: Path) -> None:
 
 
 def test_make_data_uri_rejects_leaf_symlink_swap(tmp_path: Path, monkeypatch) -> None:
-    import coverart_cli.report as report
-
     cover = tmp_path / "cover.jpg"
     outside = tmp_path / "outside.jpg"
     cover.write_bytes(VALID_JPEG)
@@ -210,8 +208,6 @@ def test_scan_library_accepts_all_tracks_with_embedded_cover(tmp_path: Path) -> 
 
 
 def test_scan_library_enforces_global_thumbnail_budget(tmp_path: Path, monkeypatch) -> None:
-    import coverart_cli.report as report
-
     for index in range(30):
         album = tmp_path / "Artist" / f"Album {index:02d}"
         album.mkdir(parents=True)
@@ -233,8 +229,6 @@ def test_scan_library_enforces_global_thumbnail_budget(tmp_path: Path, monkeypat
 def test_scan_library_reads_sidecar_once_for_validation_and_thumbnail(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import coverart_cli.tagging as tagging
-
     album = tmp_path / "Artist" / "Album"
     album.mkdir(parents=True)
     ID3().save(album / "01.mp3")
@@ -309,9 +303,7 @@ def test_build_report_escapes_closing_script_tags() -> None:
 def test_real_template_substitutes() -> None:
     """The bundled template must still contain the placeholder before substitution
     and not after."""
-    from coverart_cli.report import _read_template
-
-    tpl = _read_template()
+    tpl = report._read_template()
     assert "__REPORT_DATA__" in tpl
     html = build_report([], library_path="/tmp")
     assert "__REPORT_DATA__" not in html

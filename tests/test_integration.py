@@ -17,13 +17,15 @@ from typing import Any, cast
 import pytest
 from mutagen.id3 import APIC, ID3, TALB, TIT2, TPE1, TPE2
 
-from coverart_cli.core import RunOptions, run
+from coverart_cli import core, report, tagging
 from coverart_cli.providers.base import CoverProvider, ProviderResult
-from coverart_cli.report import write_report
 
 from .image_fixtures import VALID_JPEG  # pyrefly: ignore [missing-import]
 
 FAKE_JPEG = VALID_JPEG
+RunOptions = core.RunOptions
+run = core.run
+write_report = report.write_report
 
 
 class FakeProvider(CoverProvider):
@@ -214,8 +216,6 @@ def test_audio_hardlink_outside_library_is_not_modified(tmp_path: Path) -> None:
 def test_audio_hardlink_created_during_embed_aborts_mutation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import coverart_cli.tagging as tagging
-
     library = tmp_path / "library"
     album = _make_album(library, "Artist", "Album", tracks=1)
     track = album / "01.mp3"
@@ -238,8 +238,6 @@ def test_audio_hardlink_created_during_embed_aborts_mutation(
 def test_subtree_move_during_embed_discards_copy_on_write_result(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import coverart_cli.tagging as tagging
-
     library = tmp_path / "library"
     artist = library / "Artist"
     _make_album(library, "Artist", "Album", tracks=1)
@@ -519,8 +517,6 @@ def test_uppercase_embedded_mime_preserves_existing_art(tmp_path: Path) -> None:
 def test_replaced_album_directory_cannot_modify_external_track(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import coverart_cli.core as core
-
     album = _make_album(tmp_path / "library", "Artist", "Album", tracks=1)
     outside_album = _make_album(tmp_path / "outside-root", "Artist", "Album", tracks=1)
     external_track = outside_album / "01.mp3"
@@ -552,8 +548,6 @@ def test_replaced_album_directory_cannot_modify_external_track(
 def test_replaced_intermediate_directory_cannot_escape_library(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import coverart_cli.core as core
-
     library = tmp_path / "library"
     artist = library / "Artist"
     artist.mkdir(parents=True)
@@ -581,8 +575,6 @@ def test_replaced_intermediate_directory_cannot_escape_library(
 def test_moved_original_subtree_cannot_escape_library_after_scan(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import coverart_cli.core as core
-
     library = tmp_path / "library"
     artist = library / "Artist"
     _make_album(library, "Artist", "Album", tracks=1)
@@ -607,8 +599,6 @@ def test_moved_original_subtree_cannot_escape_library_after_scan(
 def test_subtree_move_immediately_before_sidecar_write_is_rejected(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import coverart_cli.core as core
-
     library = tmp_path / "library"
     artist = library / "Artist"
     _make_album(library, "Artist", "Album", tracks=1)
@@ -636,8 +626,6 @@ def test_subtree_move_immediately_before_sidecar_write_is_rejected(
 
 def test_wide_library_scan_stays_within_low_file_descriptor_limit(tmp_path: Path) -> None:
     resource = pytest.importorskip("resource")
-    from coverart_cli.core import _find_album_targets
-
     for index in range(120):
         album = tmp_path / f"album-{index:03d}"
         album.mkdir()
@@ -646,15 +634,13 @@ def test_wide_library_scan_stays_within_low_file_descriptor_limit(tmp_path: Path
     lowered = min(64, original[1])
     try:
         resource.setrlimit(resource.RLIMIT_NOFILE, (lowered, original[1]))
-        assert len(_find_album_targets(tmp_path)) == 120
+        assert len(core._find_album_targets(tmp_path)) == 120
     finally:
         resource.setrlimit(resource.RLIMIT_NOFILE, original)
 
 
 def test_deep_library_scan_stays_within_low_file_descriptor_limit(tmp_path: Path) -> None:
     resource = pytest.importorskip("resource")
-    from coverart_cli.core import _find_album_targets
-
     current = tmp_path
     for _ in range(100):
         current /= "d"
@@ -664,16 +650,14 @@ def test_deep_library_scan_stays_within_low_file_descriptor_limit(tmp_path: Path
     lowered = min(64, original[1])
     try:
         resource.setrlimit(resource.RLIMIT_NOFILE, (lowered, original[1]))
-        assert len(_find_album_targets(tmp_path)) == 1
+        assert len(core._find_album_targets(tmp_path)) == 1
     finally:
         resource.setrlimit(resource.RLIMIT_NOFILE, original)
 
 
 def test_missing_csv_neutralizes_spreadsheet_formulas(tmp_path: Path) -> None:
-    from coverart_cli.core import _write_missing_csv
-
     output = tmp_path / "missing.csv"
-    _write_missing_csv(
+    core._write_missing_csv(
         output,
         [(Path(name), "reason") for name in ("=1+1", "+cmd", "-2+3", " @sum(A1:A2)")],
     )
@@ -734,8 +718,6 @@ def test_parallel_processing_correctness(tmp_path: Path) -> None:
 def test_identical_embedded_art_is_decoded_once_per_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import coverart_cli.tagging as tagging
-
     album = _make_album(tmp_path, "Artist", "Album", tracks=20)
     for track in album.glob("*.mp3"):
         tags = ID3(track)
