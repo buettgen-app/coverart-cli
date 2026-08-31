@@ -1178,6 +1178,21 @@ jobs:
             --only-binary=:all: --require-hashes -r requirements-attestation.txt
       - name: Verify exact PyPI artifacts and signatures
         run: |
+          pypi_http_status() {
+            local output="$1"
+            shift
+            local status
+            if ! status="$(
+              curl --silent --show-error --location \
+                --output "$output" \
+                --write-out '%{http_code}' \
+                "$@"
+            )"; then
+              status=000
+            fi
+            printf '%s\n' "$status"
+          }
+
           version="${RELEASE_TAG#v}"
           expected_assets='[]'
           for asset_path in dist/*; do
@@ -1199,12 +1214,11 @@ jobs:
           response="$RUNNER_TEMP/pypi-release-cryptographic.json"
           complete=false
           for attempt in {1..12}; do
-            if status="$(
-              curl --silent --show-error --location \
-                --output "$response" \
-                --write-out '%{http_code}' \
+            status="$(
+              pypi_http_status "$response" \
                 "https://pypi.org/pypi/coverart-cli/$version/json"
-            )" && [ "$status" = "200" ] && jq -e \
+            )"
+            if [ "$status" = "200" ] && jq -e \
               --arg version "$version" \
               --argjson assets "$expected_assets" \
               "$PYPI_COMPLETE_JQ" "$response" >/dev/null; then
@@ -1225,13 +1239,12 @@ jobs:
             provenance="$RUNNER_TEMP/cryptographic-$encoded_name.json"
             attested=false
             for attempt in {1..12}; do
-              if status="$(
-                curl --silent --show-error --location \
+              status="$(
+                pypi_http_status "$provenance" \
                   --header 'Accept: application/vnd.pypi.integrity.v1+json' \
-                  --output "$provenance" \
-                  --write-out '%{http_code}' \
                   "https://pypi.org/integrity/coverart-cli/$version/$encoded_name/provenance"
-              )" && [ "$status" = "200" ] && jq -e \
+              )"
+              if [ "$status" = "200" ] && jq -e \
                 --arg name "$asset_name" \
                 --arg digest "$asset_digest" \
                 "$PYPI_PROVENANCE_JQ" "$provenance" >/dev/null; then

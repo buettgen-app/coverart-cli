@@ -481,10 +481,14 @@ fi
 def test_every_pypi_lookup_uses_the_tested_status_helper() -> None:
     plan = _step_run("Plan idempotent PyPI upload")
     verify = _step_run("Verify PyPI files and attestations")
+    cryptographic = _step_run("Verify exact PyPI artifacts and signatures")
+    tested_helper = _shell_function(verify, "pypi_http_status")
 
-    assert _shell_function(plan, "pypi_http_status") == _shell_function(verify, "pypi_http_status")
+    assert _shell_function(plan, "pypi_http_status") == tested_helper
+    assert _shell_function(cryptographic, "pypi_http_status") == tested_helper
     assert plan.count('pypi_http_status "$') == 1
     assert verify.count('pypi_http_status "$') == 2
+    assert cryptographic.count('pypi_http_status "$') == 2
 
 
 def test_finalize_revalidates_live_state_and_protected_tag_before_publish() -> None:
