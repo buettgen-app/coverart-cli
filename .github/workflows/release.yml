@@ -24,6 +24,21 @@ env:
   RELEASE_TAG: ${{ github.event.client_payload.tag || github.event.inputs.tag }}
   RELEASE_SHA: ${{ github.event.client_payload.sha || '' }}
   RELEASE_RUN_ID: ${{ github.event.client_payload.run_id || '' }}
+  RELEASE_LOOKUP_JQ: >-
+    [.[][] | select(.tag_name == $tag)] |
+    if length == 1 then
+      .[0] | {
+        id: .id,
+        draft: .draft,
+        immutable: .immutable,
+        tag_name: .tag_name,
+        target_commitish: .target_commitish
+      }
+    elif length == 0 then
+      error("release not found")
+    else
+      error("multiple releases found for tag")
+    end
 
 jobs:
   validate:
@@ -82,25 +97,13 @@ jobs:
             exit 1
           fi
 
-          release="$(
+          release_pages="$(
             gh api --paginate \
-              "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
-              jq -s --arg tag "$RELEASE_TAG" '
-                [.[][] | select(.tag_name == $tag)] |
-                if length == 1 then
-                  .[0] | {
-                    id: .id,
-                    draft: .draft,
-                    immutable: .immutable,
-                    tag_name: .tag_name,
-                    target_commitish: .target_commitish
-                  }
-                elif length == 0 then
-                  error("release not found")
-                else
-                  error("multiple releases found for tag")
-                end
-              '
+              "repos/$GITHUB_REPOSITORY/releases?per_page=100"
+          )"
+          release="$(
+            jq -s --arg tag "$RELEASE_TAG" "$RELEASE_LOOKUP_JQ" \
+              <<<"$release_pages"
           )"
           draft="$(jq -r .draft <<<"$release")"
           immutable="$(jq -r .immutable <<<"$release")"
