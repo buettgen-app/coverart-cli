@@ -46,6 +46,20 @@ def test_make_data_uri_small_file(tmp_path: Path) -> None:
     assert uri.startswith("data:image/jpeg;base64,")
 
 
+def test_make_data_uri_uses_content_type_not_extension(tmp_path: Path) -> None:
+    path = tmp_path / "cover.jpg"
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * 3000)
+    uri = _make_data_uri(path)
+    assert uri is not None
+    assert uri.startswith("data:image/png;base64,")
+
+
+def test_make_data_uri_rejects_invalid_image(tmp_path: Path) -> None:
+    path = tmp_path / "cover.jpg"
+    path.write_bytes(b"<!doctype html>" + b"x" * 3000)
+    assert _make_data_uri(path) is None
+
+
 def test_make_data_uri_rejects_large_file(tmp_path: Path) -> None:
     img = tmp_path / "cover.jpg"
     _make_jpeg(img, MAX_THUMB_BYTES + 100)

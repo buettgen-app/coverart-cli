@@ -14,6 +14,7 @@ from coverart_cli.tagging import (
     AUDIO_EXTS,
     MIN_COVER_BYTES,
     AlbumMeta,
+    detect_image_mime,
     embed_cover,
     existing_embedded_size,
     find_sidecar,
@@ -160,19 +161,33 @@ def process_album(
     used_sidecar = False
     if reusable_sidecar is not None and not embeds_complete:
         try:
-            result = ProviderResult(
-                image_bytes=reusable_sidecar.read_bytes(),
-                source="sidecar",
-                image_url=str(reusable_sidecar),
-            )
-            used_sidecar = True
+            image_bytes = reusable_sidecar.read_bytes()
+            if detect_image_mime(image_bytes) is not None:
+                result = ProviderResult(
+                    image_bytes=image_bytes,
+                    source="sidecar",
+                    image_url=str(reusable_sidecar),
+                )
+                used_sidecar = True
+            else:
+                log.warning("ignoring unsupported sidecar: %s", reusable_sidecar)
         except OSError as e:
             log.warning("cannot reuse sidecar %s: %s", reusable_sidecar, e)
 
     if result is None:
         for provider in opts.providers:
-            result = provider.fetch(meta.artist, meta.album)
-            if result:
+            candidate = provider.fetch(meta.artist, meta.album)
+            if candidate is None:
+                continue
+            if detect_image_mime(candidate.image_bytes) is None:
+                log.warning(
+                    "ignoring unsupported cover payload from %s for %s",
+                    candidate.source,
+                    meta,
+                )
+                continue
+            result = candidate
+            if result is not None:
                 break
 
     if not result:
@@ -201,7 +216,7 @@ def process_album(
         else:
             try:
                 write_sidecar(album_dir, result.image_bytes)
-            except OSError as e:
+            except (OSError, ValueError) as e:
                 log.error("sidecar write failed for %s: %s", album_dir, e)
                 with lock:
                     stats.errors += 1
@@ -265,7 +280,7 @@ def run(opts: RunOptions) -> RunStats:
                         stats.errors += 1
                         stats.misses.append((album_dir, f"crash: {e}"))
 
-    if opts.missing_csv and stats.misses:
+    if not opts.dry_run and opts.missing_csv and stats.misses:
         _write_missing_csv(opts.missing_csv, stats.misses)
         log.info("wrote missing list: %s", opts.missing_csv)
 

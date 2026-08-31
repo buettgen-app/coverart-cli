@@ -1,6 +1,7 @@
 """Provider-level smoke tests (no network)."""
 from __future__ import annotations
 
+import json
 import urllib.error
 import urllib.request
 
@@ -9,6 +10,8 @@ import pytest
 from coverart_cli.providers.base import CoverProvider
 from coverart_cli.providers.lastfm import LastFmProvider
 from coverart_cli.providers.musicbrainz import MusicBrainzProvider
+
+FAKE_JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF" + b"\x00" * 3000
 
 
 class DummyProvider(CoverProvider):
@@ -90,6 +93,138 @@ def test_deezer_escape_strips_quotes() -> None:
     from coverart_cli.providers import DeezerProvider
 
     assert DeezerProvider._escape('"Foo" bar') == "Foo  bar"
+
+
+@pytest.mark.parametrize(
+    "mismatch",
+    [
+        {"artistName": "The Beatles", "collectionName": "Abbey Road"},
+        {"artistName": "Pink Floyd", "collectionName": "Revolver"},
+        {"artistName": "", "collectionName": "Revolver"},
+        {"collectionName": "Revolver"},
+    ],
+)
+def test_itunes_rejects_partial_or_missing_identity_matches(
+    mismatch: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from coverart_cli.providers import ITunesProvider
+
+    mismatch["artworkUrl100"] = "https://is1-ssl.mzstatic.com/image/100x100bb.jpg"
+    payload = json.dumps({"results": [mismatch]}).encode()
+    urls: list[str] = []
+
+    def fake_get(url: str, **kwargs: object) -> bytes:
+        urls.append(url)
+        return payload
+
+    provider = ITunesProvider()
+    monkeypatch.setattr(provider, "_http_get", fake_get)
+
+    assert provider.fetch("The Beatles", "Revolver") is None
+    assert len(urls) == 1
+
+
+def test_itunes_skips_mismatch_then_accepts_full_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from coverart_cli.providers import ITunesProvider
+
+    payload = json.dumps(
+        {
+            "results": [
+                {
+                    "artistName": "The Beatles",
+                    "collectionName": "Abbey Road",
+                    "artworkUrl100": "https://is1-ssl.mzstatic.com/bad/100x100bb.jpg",
+                },
+                {
+                    "artistName": "The Beatles",
+                    "collectionName": "Revolver",
+                    "artworkUrl100": "https://is1-ssl.mzstatic.com/good/100x100bb.jpg",
+                },
+            ]
+        }
+    ).encode()
+    urls: list[str] = []
+
+    def fake_get(url: str, **kwargs: object) -> bytes:
+        urls.append(url)
+        return payload if len(urls) == 1 else FAKE_JPEG
+
+    provider = ITunesProvider()
+    monkeypatch.setattr(provider, "_http_get", fake_get)
+
+    result = provider.fetch("The Beatles", "Revolver")
+    assert result is not None
+    assert result.image_bytes == FAKE_JPEG
+    assert all("/bad/" not in url for url in urls)
+    assert any("/good/" in url for url in urls)
+
+
+@pytest.mark.parametrize(
+    "mismatch",
+    [
+        {"artist": {"name": "The Beatles"}, "title": "Abbey Road"},
+        {"artist": {"name": "Pink Floyd"}, "title": "Revolver"},
+        {"artist": {}, "title": "Revolver"},
+        {"title": "Revolver"},
+    ],
+)
+def test_deezer_rejects_partial_or_missing_identity_matches(
+    mismatch: dict[str, object], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from coverart_cli.providers import DeezerProvider
+
+    mismatch["cover_xl"] = "https://cdn-images.dzcdn.net/images/cover/bad"
+    payload = json.dumps({"data": [mismatch]}).encode()
+    urls: list[str] = []
+
+    def fake_get(url: str, **kwargs: object) -> bytes:
+        urls.append(url)
+        return payload
+
+    provider = DeezerProvider()
+    monkeypatch.setattr(provider, "_http_get", fake_get)
+
+    assert provider.fetch("The Beatles", "Revolver") is None
+    assert len(urls) == 1
+
+
+def test_deezer_skips_mismatch_then_accepts_full_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from coverart_cli.providers import DeezerProvider
+
+    payload = json.dumps(
+        {
+            "data": [
+                {
+                    "artist": {"name": "The Beatles"},
+                    "title": "Abbey Road",
+                    "cover_xl": "https://cdn-images.dzcdn.net/images/cover/bad",
+                },
+                {
+                    "artist": {"name": "The Beatles"},
+                    "title": "Revolver",
+                    "cover_xl": "https://cdn-images.dzcdn.net/images/cover/good",
+                },
+            ]
+        }
+    ).encode()
+    urls: list[str] = []
+
+    def fake_get(url: str, **kwargs: object) -> bytes:
+        urls.append(url)
+        return payload if len(urls) == 1 else FAKE_JPEG
+
+    provider = DeezerProvider()
+    monkeypatch.setattr(provider, "_http_get", fake_get)
+
+    result = provider.fetch("The Beatles", "Revolver")
+    assert result is not None
+    assert result.image_bytes == FAKE_JPEG
+    assert all("/bad" not in url for url in urls)
+    assert any("/good" in url for url in urls)
 
 
 def test_safe_url_for_log_strips_api_key() -> None:

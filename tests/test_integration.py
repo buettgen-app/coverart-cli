@@ -257,6 +257,50 @@ def test_provider_fallback_chain(tmp_path: Path) -> None:
     assert stats.fetched_from == {"fake": 1}
 
 
+def test_invalid_provider_payload_falls_back_to_valid_cover(tmp_path: Path) -> None:
+    album_dir = _make_album(tmp_path, "Some Band", "Some Album", tracks=1)
+    corrupt = FakeProvider(b"<!doctype html>" + b"x" * 3000)
+    valid = FakeProvider()
+
+    stats = run(RunOptions(root=tmp_path, providers=[corrupt, valid]))
+
+    assert corrupt.calls == [("Some Band", "Some Album")]
+    assert valid.calls == [("Some Band", "Some Album")]
+    assert stats.fetched_from == {"fake": 1}
+    assert stats.errors == 0
+    assert (album_dir / "cover.jpg").read_bytes() == FAKE_JPEG
+    pictures = [frame for frame in ID3(album_dir / "01.mp3").values() if isinstance(frame, APIC)]
+    assert [cast(Any, picture).data for picture in pictures] == [FAKE_JPEG]
+
+
+def test_invalid_sidecar_is_ignored_and_replaced(tmp_path: Path) -> None:
+    album_dir = _make_album(tmp_path, "Some Band", "Some Album", tracks=1)
+    (album_dir / "cover.jpg").write_bytes(b"<!doctype html>" + b"x" * 3000)
+    provider = FakeProvider()
+
+    stats = run(RunOptions(root=tmp_path, providers=[provider]))
+
+    assert provider.calls == [("Some Band", "Some Album")]
+    assert stats.fetched_from == {"fake": 1}
+    assert (album_dir / "cover.jpg").read_bytes() == FAKE_JPEG
+
+
+def test_all_invalid_provider_payloads_are_not_written(tmp_path: Path) -> None:
+    album_dir = _make_album(tmp_path, "Some Band", "Some Album", tracks=1)
+
+    stats = run(
+        RunOptions(
+            root=tmp_path,
+            providers=[FakeProvider(b"<!doctype html>" + b"x" * 3000)],
+        )
+    )
+
+    assert stats.not_found == 1
+    assert stats.fetched_from == {}
+    assert not (album_dir / "cover.jpg").exists()
+    assert not any(key.startswith("APIC") for key in ID3(album_dir / "01.mp3"))
+
+
 def test_all_providers_miss_records_not_found(tmp_path: Path) -> None:
     _make_album(tmp_path, "Some Band", "Some Album")
     miss = NeverFindProvider()
@@ -294,6 +338,23 @@ def test_dry_run_changes_nothing(tmp_path: Path) -> None:
     # …but nothing was written.
     assert not (album_dir / "cover.jpg").exists()
     assert stats.files_embedded == 0
+
+
+def test_dry_run_preserves_existing_missing_csv(tmp_path: Path) -> None:
+    _make_album(tmp_path, "Some Band", "Some Album", tracks=1)
+    output = tmp_path / "missing.csv"
+    output.write_text("KEEP", encoding="utf-8")
+
+    run(
+        RunOptions(
+            root=tmp_path,
+            providers=[NeverFindProvider()],
+            dry_run=True,
+            missing_csv=output,
+        )
+    )
+
+    assert output.read_text(encoding="utf-8") == "KEEP"
 
 
 @pytest.mark.parametrize("flag", ["do_embed", "do_sidecar"])

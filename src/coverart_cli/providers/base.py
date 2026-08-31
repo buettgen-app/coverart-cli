@@ -129,3 +129,15 @@ class CoverProvider(ABC):
         if last_err:
             log.debug("%s exhausted retries: %s", _safe_url_for_log(url), last_err)
         return None
+
+
+def _catalogue_text_matches(requested: str, candidate: object) -> bool:
+    """Return whether a non-empty catalogue field matches the requested value."""
+    if not isinstance(candidate, str):
+        return False
+    requested_normalized = " ".join(requested.casefold().split())
+    candidate_normalized = " ".join(candidate.casefold().split())
+    return bool(requested_normalized and candidate_normalized) and (
+        requested_normalized in candidate_normalized
+        or candidate_normalized in requested_normalized
+    )
