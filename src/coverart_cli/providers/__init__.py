@@ -1,4 +1,5 @@
 """Cover art providers — Last.fm, iTunes, Deezer, MusicBrainz / Cover Art Archive."""
+
 from coverart_cli.providers.base import CoverProvider, ProviderResult
 from coverart_cli.providers.deezer import DeezerProvider
 from coverart_cli.providers.itunes import ITunesProvider

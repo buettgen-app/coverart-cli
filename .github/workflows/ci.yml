@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -35,8 +35,50 @@ jobs:
         run: ruff check .
       - name: Type check
         run: pyrefly check
+      - name: Verify real-format test capability
+        run: |
+          command -v ffmpeg
+          ffmpeg -version
       - name: Unit + integration tests
-        run: pytest --cov=coverart_cli --cov-report=term-missing
+        run: pytest --cov=coverart_cli --cov-report=term-missing --cov-fail-under=78
+
+  windows-smoke:
+    name: windows secure-boundary smoke
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install locked tools
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements-ci.txt
+          python -m pip install --disable-pip-version-check --no-deps --no-build-isolation -e .
+      - name: Verify platform-safe behavior
+        run: pytest tests/test_tagging.py tests/test_cli.py
+
+  macos-metadata:
+    name: macOS metadata preservation
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install locked tools
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements-ci.txt
+          python -m pip install --disable-pip-version-check --no-deps --no-build-isolation -e .
+      - name: Verify copy-on-write metadata contract
+        run: |
+          pytest \
+            tests/test_tagging.py::test_embed_cover_preserves_macos_extended_attributes \
+            tests/test_tagging.py::test_embed_cover_identity_mismatch_does_not_double_close_fd \
+            tests/test_tagging.py::test_embed_cover_rejects_same_inode_change_after_copy
 
   smoke:
     name: smoke (install wheel + run end-to-end)
@@ -83,6 +125,9 @@ jobs:
         run: |
           /tmp/smoke-venv/bin/python <<'PY'
           from pathlib import Path
+          import io
+
+          from PIL import Image
 
           from coverart_cli.core import RunOptions, run
           from coverart_cli.providers.base import CoverProvider, ProviderResult
@@ -92,8 +137,13 @@ jobs:
               user_agent = "coverart-cli-smoke/1.0"
 
               def fetch(self, artist, album):
+                  output = io.BytesIO()
+                  Image.effect_noise((128, 128), 100).convert("RGB").save(
+                      output, format="JPEG", quality=90
+                  )
+                  image_bytes = output.getvalue()
                   return ProviderResult(
-                      image_bytes=b"\xff\xd8\xff\xe0\x00\x10JFIF" + b"\x00" * 3000,
+                      image_bytes=image_bytes,
                       source=self.name,
                       image_url="fixture://cover.jpg",
                   )

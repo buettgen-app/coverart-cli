@@ -40,7 +40,11 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check --require-hashes -r requirements-fuzz.txt
           python -m pip install --disable-pip-version-check --no-deps --no-build-isolation -e .
-      - name: Fuzz report and logging boundaries
+      - name: Fuzz untrusted-input boundaries
         env:
-          FUZZ_SECONDS: ${{ github.event_name == 'pull_request' && '15' || '120' }}
-        run: python fuzz/fuzz_report.py -max_total_time="$FUZZ_SECONDS" -rss_limit_mb=512
+          FUZZ_SECONDS: ${{ github.event_name == 'pull_request' && '15' || '90' }}
+        run: |
+          python fuzz/fuzz_report.py -max_total_time="$FUZZ_SECONDS" -rss_limit_mb=512
+          python fuzz/make_image_corpus.py /tmp/coverart-image-corpus
+          python fuzz/fuzz_images.py /tmp/coverart-image-corpus \
+            -max_total_time="$FUZZ_SECONDS" -rss_limit_mb=512

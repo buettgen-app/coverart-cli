@@ -1,4 +1,5 @@
 """Command-line interface for coverart-cli."""
+
 from __future__ import annotations
 
 import argparse
@@ -17,8 +18,26 @@ from coverart_cli.providers import (
     LastFmProvider,
     MusicBrainzProvider,
 )
+from coverart_cli.tagging import (
+    supports_secure_library_traversal,
+    supports_secure_sidecar_writes,
+)
 
 DEFAULT_UA = f"coverart-cli/{__version__} (+https://github.com/buettgen-app/coverart-cli)"
+
+
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return parsed
+
+
+def _nonnegative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be at least 0")
+    return parsed
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,6 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  coverart ~/Music --no-embed                   # sidecars only\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        allow_abbrev=False,
     )
     p.add_argument("root", type=Path, help="root directory of your music library")
     p.add_argument(
@@ -46,7 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="PATH",
         help="explicit config file (default lookup: ~/.config/coverart-cli/config.toml, "
-             "then ./coverart.toml)",
+        "then ./coverart.toml)",
     )
     p.add_argument(
         "--lastfm-key",
@@ -58,20 +78,26 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="disable Last.fm provider (skip it even if a key is given)",
     )
+    p.add_argument("--lastfm", dest="no_lastfm", action="store_false", help=argparse.SUPPRESS)
     p.add_argument(
         "--no-itunes",
         action="store_true",
         help="disable Apple Music / iTunes Search provider",
     )
+    p.add_argument("--itunes", dest="no_itunes", action="store_false", help=argparse.SUPPRESS)
     p.add_argument(
         "--no-deezer",
         action="store_true",
         help="disable Deezer provider",
     )
+    p.add_argument("--deezer", dest="no_deezer", action="store_false", help=argparse.SUPPRESS)
     p.add_argument(
         "--no-musicbrainz",
         action="store_true",
         help="disable MusicBrainz / Cover Art Archive fallback",
+    )
+    p.add_argument(
+        "--musicbrainz", dest="no_musicbrainz", action="store_false", help=argparse.SUPPRESS
     )
     p.add_argument(
         "--user-agent",
@@ -83,27 +109,35 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="do not embed cover into audio file tags",
     )
+    p.add_argument("--embed", dest="no_embed", action="store_false", help=argparse.SUPPRESS)
     p.add_argument(
         "--no-sidecar",
         action="store_true",
         help="do not write cover.jpg sidecar in album directory",
     )
+    p.add_argument("--sidecar", dest="no_sidecar", action="store_false", help=argparse.SUPPRESS)
     p.add_argument(
         "--no-fallback-dirnames",
         action="store_true",
         help="do not fall back to artist/album dir names if tags are missing",
     )
     p.add_argument(
+        "--fallback-dirnames",
+        dest="no_fallback_dirnames",
+        action="store_false",
+        help=argparse.SUPPRESS,
+    )
+    p.add_argument(
         "--min-bytes",
-        type=int,
+        type=_nonnegative_int,
         default=0,
         metavar="N",
         help="upgrade existing covers smaller than this many bytes "
-             "(applies to both sidecar and embedded; 0 = never replace, the default)",
+        "(applies to both sidecar and embedded; 0 = never replace, the default)",
     )
     p.add_argument(
         "--workers",
-        type=int,
+        type=_positive_int,
         default=4,
         metavar="N",
         help="number of albums to process in parallel (default: 4, set 1 for serial)",
@@ -112,18 +146,32 @@ def build_parser() -> argparse.ArgumentParser:
         "--replace-smaller",
         action="store_true",
         help="when an existing cover is smaller than the newly fetched one, "
-             "replace it (default: keep larger existing)",
+        "replace it (default: keep larger existing)",
+    )
+    p.add_argument(
+        "--keep-larger-existing",
+        dest="replace_smaller",
+        action="store_false",
+        help=argparse.SUPPRESS,
     )
     p.add_argument(
         "--dry-run",
         action="store_true",
         help="show what would happen, write nothing",
     )
+    p.add_argument("--no-dry-run", dest="dry_run", action="store_false", help=argparse.SUPPRESS)
     p.add_argument(
         "--missing-csv",
         type=Path,
         default=None,
         help="path to write a CSV of albums for which no cover was found",
+    )
+    p.add_argument(
+        "--no-missing-csv",
+        dest="missing_csv",
+        action="store_const",
+        const=None,
+        help=argparse.SUPPRESS,
     )
     p.add_argument(
         "--report-html",
@@ -132,14 +180,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="write a self-contained HTML report of library coverage to this path",
     )
     p.add_argument(
+        "--no-report-html",
+        dest="report_html",
+        action="store_const",
+        const=None,
+        help=argparse.SUPPRESS,
+    )
+    p.add_argument(
         "--no-thumbs",
         action="store_true",
         help="when generating the HTML report, skip embedding cover thumbnails",
     )
+    p.add_argument("--thumbs", dest="no_thumbs", action="store_false", help=argparse.SUPPRESS)
     p.add_argument(
         "--report-only",
         action="store_true",
         help="only generate the HTML report; do not fetch or modify anything",
+    )
+    p.add_argument(
+        "--no-report-only", dest="report_only", action="store_false", help=argparse.SUPPRESS
     )
     p.add_argument("-v", "--verbose", action="count", default=0, help="-v for INFO, -vv for DEBUG")
     p.add_argument("--version", action="version", version=f"coverart-cli {__version__}")
@@ -155,29 +214,61 @@ def configure_logging(verbosity: int) -> None:
     logging.basicConfig(level=level, format="%(message)s")
 
 
+def _explicit_cli_dests(parser: argparse.ArgumentParser, argv: list[str] | None) -> set[str]:
+    """Return option destinations explicitly supplied by the caller."""
+    tokens = argv if argv is not None else sys.argv[1:]
+    explicit: set[str] = set()
+    for token in tokens:
+        if token == "--":
+            break
+        option = token.split("=", 1)[0]
+        action = parser._option_string_actions.get(option)
+        if action is not None:
+            explicit.add(action.dest)
+    return explicit
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
+    explicit_dests = _explicit_cli_dests(parser, argv)
     args = parser.parse_args(argv)
     configure_logging(args.verbose)
 
-    # Merge config file values into args where the user did not pass a flag.
-    # CLI-supplied (non-default) values always win.
+    # Merge config file values only where the user did not pass the option.
+    # Tracking presence (instead of comparing defaults) also preserves an
+    # explicit built-in value such as `--workers 4` over a config value.
     cfg = load_config(args.config)
     for key, value in cfg.items():
-        if not hasattr(args, key):
+        if not hasattr(args, key) or key in explicit_dests:
             continue
-        current = getattr(args, key)
-        default = parser.get_default(key)
-        if current == default or current is None:
-            setattr(args, key, value)
+        setattr(args, key, value)
 
     # Environment variable takes precedence over config but is overridden by --lastfm-key.
-    if args.lastfm_key is None:
-        args.lastfm_key = os.environ.get("LASTFM_API_KEY") or cfg.get("lastfm_key")
+    if "lastfm_key" not in explicit_dests:
+        args.lastfm_key = os.environ.get("LASTFM_API_KEY") or args.lastfm_key
 
     if args.dry_run and (args.report_html or args.missing_csv):
         print(
             "error: --dry-run cannot be combined with --report-html or --missing-csv",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.no_embed and args.no_sidecar and not args.report_only:
+        print("error: --no-embed and --no-sidecar disable every output", file=sys.stderr)
+        return 2
+
+    if not supports_secure_library_traversal():
+        print(
+            "error: secure no-follow library traversal is unsupported on this platform",
+            file=sys.stderr,
+        )
+        return 2
+
+    if not args.no_sidecar and not args.dry_run and not supports_secure_sidecar_writes():
+        print(
+            "error: secure sidecar writes are unsupported on this platform; "
+            "use --no-sidecar to embed artwork without sidecar files",
             file=sys.stderr,
         )
         return 2
@@ -221,7 +312,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         stats = run(opts)
-    except FileNotFoundError as e:
+    except OSError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
 
@@ -230,9 +321,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.report_html:
         from coverart_cli.report import write_report
 
-        path, n = write_report(args.root, args.report_html, embed_thumbs=not args.no_thumbs)
+        try:
+            path, n = write_report(
+                args.root,
+                args.report_html,
+                embed_thumbs=not args.no_thumbs,
+            )
+        except OSError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
         print(f"\nHTML report ({n} albums) written to: {path}")
-    return 0
+    return 1 if stats.errors else 0
 
 
 def _do_report_only(args) -> int:
@@ -243,7 +342,7 @@ def _do_report_only(args) -> int:
         return 2
     try:
         path, n = write_report(args.root, args.report_html, embed_thumbs=not args.no_thumbs)
-    except FileNotFoundError as e:
+    except OSError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     print(f"HTML report ({n} albums) written to: {path}")
