@@ -1,3 +1,3 @@
-atheris==2.3.0
+atheris==3.0.0
 mutagen==1.48.1
 -r requirements-build-backend.in
