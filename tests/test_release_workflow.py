@@ -705,7 +705,7 @@ def test_draft_is_revalidated_and_published_at_the_bound_commit() -> None:
     assert 'git merge-base --is-ancestor "$VALIDATED_DRAFT_TARGET" HEAD' in workflow
     assert "Release recovery includes changes outside the explicit release repair." in workflow
     assert "name: Resolve live release phase" in workflow
-    assert 'select_dispatch_release_ref "$release" "$refs"' in workflow
+    assert 'select_dispatch_release_ref "$release" "$tag_sha"' in workflow
     assert workflow.count("select_dispatch_release_ref") == 2
     assert workflow.count("resolve_annotated_release_tag") == 2
     assert "Published dispatch recovery requires the exact annotated release tag." in workflow
