@@ -62,7 +62,10 @@ the selected library.
 
 Before the first non-dry run, keep a backup of irreplaceable music files. Tag
 writes are handled by [Mutagen](https://mutagen.readthedocs.io/), but any bulk
-metadata operation deserves a recovery path.
+metadata operation deserves a recovery path. Do not move or rename library
+directories concurrently with a write run. Root-anchored traversal rejects
+symlink swaps, but on POSIX a directory rename by another process does not
+revoke a directory descriptor that is already open.
 
 ## Config file
 
@@ -80,7 +83,9 @@ Lookup order (later wins): built-in defaults →
 `~/.config/coverart-cli/config.toml` → `./coverart.toml` → `--config PATH` →
 CLI flags. `LASTFM_API_KEY` overrides the configured key unless
 `--lastfm-key` is supplied. Run `coverart ~/Music` afterwards with no repeated
-flags.
+flags. An explicit CLI value always wins, even when it equals the built-in
+default. Use `--embed`, `--sidecar`, `--no-dry-run`, `--no-report-html`, or
+`--no-missing-csv` to temporarily clear the corresponding configured action.
 
 ## Sources
 
@@ -100,8 +105,15 @@ arbitrary hosts and non-HTTPS URLs are rejected.
 MP3 (ID3 APIC), M4A/M4B/MP4 (covr atom), FLAC (Picture block),
 Ogg Vorbis / Opus (metadata_block_picture).
 
-Cover inputs are accepted as JPEG or PNG. Unrecognized provider payloads and
-local sidecars are ignored instead of being written into tags.
+Library traversal and mutation require directory-relative, no-follow file APIs
+available on Linux and macOS. The CLI rejects unsupported platforms before
+contacting any provider, rather than risk following a replaced path component.
+
+Cover inputs are accepted only when Pillow can fully decode them as JPEG or PNG, up to 20 MiB
+and within the documented dimension limits. Report thumbnails also use a global size budget so
+very large libraries cannot make the self-contained HTML grow without bound.
+Malformed, oversized, or unrecognized provider payloads and local sidecars are
+ignored instead of being written into tags.
 
 ## Common workflows
 
@@ -125,10 +137,12 @@ from pathlib import Path
 from coverart_cli.core import RunOptions, run
 from coverart_cli.providers import ITunesProvider, DeezerProvider
 
-stats = run(RunOptions(
-    root=Path("~/Music").expanduser(),
-    providers=[ITunesProvider(), DeezerProvider()],
-))
+stats = run(
+    RunOptions(
+        root=Path("~/Music").expanduser(),
+        providers=[ITunesProvider(), DeezerProvider()],
+    )
+)
 print(stats.fetched_from, stats.not_found)
 ```
 

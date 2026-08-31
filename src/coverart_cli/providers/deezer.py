@@ -1,4 +1,5 @@
 """Deezer public search API — no key required."""
+
 from __future__ import annotations
 
 import json
@@ -38,7 +39,13 @@ class DeezerProvider(CoverProvider):
         except json.JSONDecodeError:
             return None
 
-        for hit in data.get("data", []):
+        if not isinstance(data, dict):
+            return None
+        results = data.get("data")
+        if not isinstance(results, list):
+            return None
+
+        for hit in results:
             if not isinstance(hit, dict):
                 continue
             hit_artist = hit.get("artist")
@@ -49,13 +56,11 @@ class DeezerProvider(CoverProvider):
             ):
                 continue
             img_url = hit.get("cover_xl") or hit.get("cover_big")
-            if not img_url:
+            if not isinstance(img_url, str) or not img_url:
                 continue
             img = self._http_get(img_url, timeout=25)
             if img and len(img) >= MIN_COVER_BYTES:
-                return ProviderResult(
-                    image_bytes=img, source=self.name, image_url=img_url
-                )
+                return ProviderResult(image_bytes=img, source=self.name, image_url=img_url)
         return None
 
     @staticmethod

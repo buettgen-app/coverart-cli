@@ -22,6 +22,7 @@ Example file (all keys optional):
     replace_smaller = true
     user_agent  = "coverart-cli (mailto:you@example.com)"
 """
+
 from __future__ import annotations
 
 import logging
@@ -32,27 +33,34 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 # Keys we accept in the config file — must match argparse `dest` names.
-ALLOWED_KEYS: frozenset[str] = frozenset({
+ALLOWED_KEYS: frozenset[str] = frozenset(
+    {
+        "lastfm_key",
+        "no_lastfm",
+        "no_itunes",
+        "no_deezer",
+        "no_musicbrainz",
+        "user_agent",
+        "no_embed",
+        "no_sidecar",
+        "no_fallback_dirnames",
+        "min_bytes",
+        "replace_smaller",
+        "workers",
+        "dry_run",
+        "missing_csv",
+        "report_html",
+        "no_thumbs",
+        "report_only",
+    }
+)
+BOOL_KEYS = ALLOWED_KEYS - {
     "lastfm_key",
-    "no_lastfm",
-    "no_itunes",
-    "no_deezer",
-    "no_musicbrainz",
     "user_agent",
-    "no_embed",
-    "no_sidecar",
-    "no_fallback_dirnames",
     "min_bytes",
-    "replace_smaller",
     "workers",
-    "dry_run",
     "missing_csv",
     "report_html",
-    "no_thumbs",
-    "report_only",
-})
-BOOL_KEYS = ALLOWED_KEYS - {
-    "lastfm_key", "user_agent", "min_bytes", "workers", "missing_csv", "report_html"
 }
 INT_KEYS = frozenset({"min_bytes", "workers"})
 PATH_KEYS = frozenset({"missing_csv", "report_html"})

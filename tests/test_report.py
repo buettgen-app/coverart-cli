@@ -1,35 +1,43 @@
 """Tests for the HTML report module."""
+
 from __future__ import annotations
 
+import base64
+import io
 import json
 from pathlib import Path
 
+import pytest
 from mutagen.id3 import APIC, ID3
+from PIL import Image
 
 from coverart_cli.report import (
+    MAX_REPORT_THUMB_BYTES,
     MAX_THUMB_BYTES,
+    MAX_THUMB_DIMENSION,
     AlbumEntry,
     _make_data_uri,
     build_report,
     scan_library,
 )
 
-# Minimal valid JPEG (10x10 yellow) — 631 bytes
-JPEG_BYTES = bytes.fromhex(
-    "ffd8ffe000104a46494600010100000100010000ffdb0043000806060706050807070709"
-    "0908"
-)
+from .image_fixtures import VALID_JPEG, VALID_PNG  # pyrefly: ignore [missing-import]
 
 
 def _make_jpeg(path: Path, payload_size: int = 3000) -> None:
-    """Write a JPEG-magic-byte file with given total size."""
-    path.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * (payload_size - 4))
+    """Write a structurally complete JPEG container of at least payload_size."""
+    padding = max(0, payload_size - len(VALID_JPEG))
+    path.write_bytes(VALID_JPEG[:-2] + b"\x00" * padding + VALID_JPEG[-2:])
 
 
 def test_album_entry_to_dict() -> None:
     e = AlbumEntry(
-        artist="Pink Floyd", album="The Wall", path="Pink Floyd/The Wall",
-        has_cover=True, source="lastfm", file_count=12,
+        artist="Pink Floyd",
+        album="The Wall",
+        path="Pink Floyd/The Wall",
+        has_cover=True,
+        source="lastfm",
+        file_count=12,
         cover_data_uri="data:image/jpeg;base64,xxx",
     )
     d = e.to_dict()
@@ -48,10 +56,22 @@ def test_make_data_uri_small_file(tmp_path: Path) -> None:
 
 def test_make_data_uri_uses_content_type_not_extension(tmp_path: Path) -> None:
     path = tmp_path / "cover.jpg"
-    path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * 3000)
+    path.write_bytes(VALID_PNG)
     uri = _make_data_uri(path)
     assert uri is not None
     assert uri.startswith("data:image/png;base64,")
+
+
+def test_make_data_uri_downsamples_large_cover(tmp_path: Path) -> None:
+    path = tmp_path / "cover.jpg"
+    Image.new("RGB", (1024, 768), "navy").save(path, format="JPEG", quality=90)
+
+    uri = _make_data_uri(path)
+
+    assert uri is not None
+    thumbnail = base64.b64decode(uri.split(",", 1)[1])
+    with Image.open(io.BytesIO(thumbnail)) as image:
+        assert max(image.size) <= MAX_THUMB_DIMENSION
 
 
 def test_make_data_uri_rejects_invalid_image(tmp_path: Path) -> None:
@@ -60,18 +80,49 @@ def test_make_data_uri_rejects_invalid_image(tmp_path: Path) -> None:
     assert _make_data_uri(path) is None
 
 
-def test_make_data_uri_rejects_large_file(tmp_path: Path) -> None:
+def test_make_data_uri_downsamples_large_source_file(tmp_path: Path) -> None:
     img = tmp_path / "cover.jpg"
     _make_jpeg(img, MAX_THUMB_BYTES + 100)
-    assert _make_data_uri(img) is None
+    assert _make_data_uri(img) is not None
 
 
 def test_make_data_uri_missing_file(tmp_path: Path) -> None:
     assert _make_data_uri(tmp_path / "does-not-exist.jpg") is None
 
 
+def test_make_data_uri_rejects_leaf_symlink_swap(tmp_path: Path, monkeypatch) -> None:
+    import coverart_cli.report as report
+
+    cover = tmp_path / "cover.jpg"
+    outside = tmp_path / "outside.jpg"
+    cover.write_bytes(VALID_JPEG)
+    outside.write_bytes(VALID_JPEG)
+    original_identity = report.file_identity
+    swapped = False
+
+    def identity_then_swap(path: Path, **kwargs):
+        nonlocal swapped
+        identity = original_identity(path, **kwargs)
+        if path == cover and not swapped:
+            swapped = True
+            cover.rename(tmp_path / "original.jpg")
+            cover.symlink_to(outside)
+        return identity
+
+    monkeypatch.setattr(report, "file_identity", identity_then_swap)
+    assert _make_data_uri(cover) is None
+
+
 def test_scan_library_empty(tmp_path: Path) -> None:
     assert scan_library(tmp_path) == []
+
+
+def test_scan_library_rejects_regular_file_root(tmp_path: Path) -> None:
+    root = tmp_path / "not-a-directory"
+    root.write_text("not a music library", encoding="utf-8")
+
+    with pytest.raises(FileNotFoundError, match="not a directory"):
+        scan_library(root)
 
 
 def test_scan_library_skips_hidden(tmp_path: Path) -> None:
@@ -88,8 +139,10 @@ def test_scan_library_finds_albums(tmp_path: Path, monkeypatch) -> None:
     (a / "02.mp3").write_bytes(b"x" * 100)
     _make_jpeg(a / "cover.jpg", 4000)
     monkeypatch.setattr(
-        "coverart_cli.report.has_embedded_cover",
-        lambda _path: (_ for _ in ()).throw(AssertionError("sidecar should short-circuit scans")),
+        "coverart_cli.report.existing_embedded_size",
+        lambda _path, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("sidecar should short-circuit scans")
+        ),
     )
 
     entries = scan_library(tmp_path, embed_thumbs=True)
@@ -114,7 +167,7 @@ def test_scan_library_missing_cover(tmp_path: Path) -> None:
     assert entries[0].cover_data_uri is None
 
 
-def test_scan_library_checks_every_track_for_embedded_cover(tmp_path: Path) -> None:
+def test_scan_library_requires_every_track_to_have_embedded_cover(tmp_path: Path) -> None:
     album = tmp_path / "Some Artist" / "Some Album"
     album.mkdir(parents=True)
     for index in range(1, 5):
@@ -126,7 +179,7 @@ def test_scan_library_checks_every_track_for_embedded_cover(tmp_path: Path) -> N
                     mime="image/jpeg",
                     type=3,
                     desc="Cover",
-                    data=b"\xff\xd8\xff" + b"x" * 3000,
+                    data=VALID_JPEG,
                 )
             )
         tags.save(album / f"{index:02d}.mp3")
@@ -134,14 +187,82 @@ def test_scan_library_checks_every_track_for_embedded_cover(tmp_path: Path) -> N
     entries = scan_library(tmp_path, embed_thumbs=False)
 
     assert len(entries) == 1
-    assert entries[0].has_cover is True
+    assert entries[0].has_cover is False
+
+
+def test_scan_library_accepts_all_tracks_with_embedded_cover(tmp_path: Path) -> None:
+    album = tmp_path / "Some Artist" / "Some Album"
+    album.mkdir(parents=True)
+    for index in range(1, 4):
+        tags = ID3()
+        tags.add(
+            APIC(
+                encoding=3,
+                mime="image/jpeg",
+                type=3,
+                desc="Cover",
+                data=VALID_JPEG,
+            )
+        )
+        tags.save(album / f"{index:02d}.mp3")
+
+    assert scan_library(tmp_path, embed_thumbs=False)[0].has_cover is True
+
+
+def test_scan_library_enforces_global_thumbnail_budget(tmp_path: Path, monkeypatch) -> None:
+    import coverart_cli.report as report
+
+    for index in range(30):
+        album = tmp_path / "Artist" / f"Album {index:02d}"
+        album.mkdir(parents=True)
+        ID3().save(album / "01.mp3")
+        (album / "cover.jpg").write_bytes(VALID_JPEG)
+    fake_uri = "data:image/jpeg;base64," + "A" * 199_000
+    monkeypatch.setattr(report, "_make_data_uri", lambda *_args, **_kwargs: fake_uri)
+
+    entries = scan_library(tmp_path)
+    embedded_bytes = sum(
+        len(entry.cover_data_uri.encode("ascii"))
+        for entry in entries
+        if entry.cover_data_uri is not None
+    )
+    assert embedded_bytes <= MAX_REPORT_THUMB_BYTES
+    assert any(entry.cover_data_uri is None for entry in entries)
+
+
+def test_scan_library_reads_sidecar_once_for_validation_and_thumbnail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import coverart_cli.tagging as tagging
+
+    album = tmp_path / "Artist" / "Album"
+    album.mkdir(parents=True)
+    ID3().save(album / "01.mp3")
+    (album / "cover.jpg").write_bytes(VALID_JPEG)
+    original = tagging.read_cover_file
+    reads = 0
+
+    def counted(*args, **kwargs):
+        nonlocal reads
+        reads += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(tagging, "read_cover_file", counted)
+
+    entries = scan_library(tmp_path)
+    assert entries[0].cover_data_uri is not None
+    assert reads == 1
 
 
 def test_build_report_substitutes_data(tmp_path: Path) -> None:
     entries = [
         AlbumEntry(
-            artist="A", album="B", path="A/B",
-            has_cover=False, source="none", file_count=3,
+            artist="A",
+            album="B",
+            path="A/B",
+            has_cover=False,
+            source="none",
+            file_count=3,
         )
     ]
     tpl = "<html>__REPORT_DATA__</html>"
@@ -172,8 +293,11 @@ def test_build_report_escapes_closing_script_tags() -> None:
     entries = [
         AlbumEntry(
             artist="Hax</script><script>alert(1)</script>",
-            album="x", path="x",
-            has_cover=False, source="none", file_count=1,
+            album="x",
+            path="x",
+            has_cover=False,
+            source="none",
+            file_count=1,
         )
     ]
     tpl = "__REPORT_DATA__"

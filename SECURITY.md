@@ -12,6 +12,13 @@ production deployment, so the realistic scope of a security issue here is
 limited to: arbitrary file write under the user's music root, network calls
 to unintended hosts, or denial of service via crafted audio files.
 
+The filesystem boundary assumes that no other process with the same user
+permissions concurrently moves or renames the selected library while a write
+run is active. The CLI authorizes directory objects reached through
+root-anchored, no-follow traversal; POSIX renames do not revoke already-open
+directory descriptors. Symlink and hard-link aliases are handled defensively,
+but same-user concurrent filesystem reorganization is outside the threat model.
+
 ## Supported versions
 
 Only the latest minor release is supported with fixes.

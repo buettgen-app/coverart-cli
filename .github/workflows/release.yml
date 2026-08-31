@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       actions: read
-      contents: write
+      contents: read
     outputs:
       release_id: ${{ steps.release.outputs.id }}
       draft: ${{ steps.release.outputs.draft }}
@@ -187,7 +187,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -218,21 +218,80 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - name: Build wheel and source distribution
+      - name: Install locked release tools
         run: |
           python -m pip install --disable-pip-version-check --require-hashes -r requirements-build.txt
-          python -m build --no-isolation
-      - name: Verify wheel installation
+      - name: Build wheel and source distribution
+        if: needs.validate.outputs.draft == 'true'
         run: |
-          python -m venv /tmp/release-venv
-          /tmp/release-venv/bin/pip install --disable-pip-version-check dist/*.whl
-          version="${RELEASE_TAG#v}"
-          test "$(/tmp/release-venv/bin/coverart --version)" = "coverart-cli $version"
-          /tmp/release-venv/bin/coverart --help > /dev/null
-      - name: Validate artifact set
+          python -m build --no-isolation
+      - name: Download immutable release assets for recovery
+        if: needs.validate.outputs.draft != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir dist
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir dist
+          gh release verify "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"
+          for asset in dist/*; do
+            gh release verify-asset "$RELEASE_TAG" "$asset" --repo "$GITHUB_REPOSITORY"
+          done
+      - name: Validate artifact set and metadata
         run: |
           test "$(find dist -maxdepth 1 -type f -name '*.whl' | wc -l | tr -d ' ')" = "1"
           test "$(find dist -maxdepth 1 -type f -name '*.tar.gz' | wc -l | tr -d ' ')" = "1"
+          python - <<'PY'
+          import tarfile
+          import zipfile
+          import os
+          from pathlib import Path
+
+          from packaging.metadata import Metadata
+
+          for artifact in Path("dist").iterdir():
+              if artifact.suffix == ".whl":
+                  with zipfile.ZipFile(artifact) as archive:
+                      member = next(
+                          name for name in archive.namelist()
+                          if name.endswith(".dist-info/METADATA")
+                      )
+                      raw_metadata = archive.read(member)
+              else:
+                  with tarfile.open(artifact) as archive:
+                      member = next(
+                          item for item in archive.getmembers()
+                          if item.name.endswith("/PKG-INFO")
+                      )
+                      extracted = archive.extractfile(member)
+                      if extracted is None:
+                          raise SystemExit(f"missing metadata in {artifact}")
+                      raw_metadata = extracted.read()
+              metadata = Metadata.from_email(raw_metadata, validate=True)
+              if (
+                  metadata.name != "coverart-cli"
+                  or str(metadata.version) != os.environ["RELEASE_TAG"][1:]
+              ):
+                  raise SystemExit(f"unexpected metadata in {artifact}")
+          PY
+      - name: Verify wheel and source-distribution installations
+        run: |
+          version="${RELEASE_TAG#v}"
+          for kind in wheel sdist; do
+            python -m venv "/tmp/release-$kind"
+            "/tmp/release-$kind/bin/pip" install \
+              --disable-pip-version-check --require-hashes -r requirements-build.txt
+            if [ "$kind" = wheel ]; then
+              artifact=(dist/*.whl)
+              extra=(--no-deps)
+            else
+              artifact=(dist/*.tar.gz)
+              extra=(--no-deps --no-build-isolation)
+            fi
+            "/tmp/release-$kind/bin/pip" install --disable-pip-version-check \
+              "${extra[@]}" "${artifact[0]}"
+            test "$("/tmp/release-$kind/bin/coverart" --version)" = "coverart-cli $version"
+            "/tmp/release-$kind/bin/coverart" --help > /dev/null
+          done
       - name: Store release artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -275,6 +334,18 @@ jobs:
             printf 'Expected:\n%s\nActual:\n%s\n' "$expected_assets" "$actual_assets"
             exit 1
           fi
+
+          while IFS= read -r asset; do
+            local_digest="sha256:$(sha256sum "dist/$asset" | cut -d' ' -f1)"
+            remote_digest="$(
+              gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+                --jq ".assets[] | select(.name == \"$asset\") | .digest"
+            )"
+            if [ "$remote_digest" != "$local_digest" ]; then
+              echo "::error::$asset digest does not match its GitHub release asset."
+              exit 1
+            fi
+          done <<<"$expected_assets"
       - name: Publish draft release
         if: needs.validate.outputs.draft == 'true'
         env:
@@ -294,11 +365,21 @@ jobs:
             exit 1
           fi
 
+          if [ "$(jq -r .immutable <<<"$release")" != "true" ]; then
+            echo "::error::$RELEASE_TAG is not immutable; refusing PyPI publication."
+            exit 1
+          fi
+
           if [ "$RELEASE_WAS_DRAFT" = "true" ] &&
              [ "$(jq '.assets | length' <<<"$release")" -ne 2 ]; then
             echo "::error::$RELEASE_TAG does not contain the verified wheel and source distribution."
             exit 1
           fi
+
+          gh release verify "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"
+          for asset in dist/*; do
+            gh release verify-asset "$RELEASE_TAG" "$asset" --repo "$GITHUB_REPOSITORY"
+          done
 
   publish:
     name: Publish to PyPI

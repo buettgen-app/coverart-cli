@@ -1,17 +1,20 @@
 """Provider-level smoke tests (no network)."""
+
 from __future__ import annotations
 
 import json
 import urllib.error
 import urllib.request
+from email.message import Message
+from email.utils import formatdate
 
 import pytest
 
-from coverart_cli.providers.base import CoverProvider
+from coverart_cli.providers.base import CoverProvider, ProviderUnavailable
 from coverart_cli.providers.lastfm import LastFmProvider
 from coverart_cli.providers.musicbrainz import MusicBrainzProvider
 
-FAKE_JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF" + b"\x00" * 3000
+from .image_fixtures import VALID_JPEG  # pyrefly: ignore [missing-import]
 
 
 class DummyProvider(CoverProvider):
@@ -26,6 +29,7 @@ class DummyProvider(CoverProvider):
 class FakeResponse:
     def __init__(self, payload: bytes) -> None:
         self.payload = payload
+        self.offset = 0
         self.url = "https://example.com/cover.jpg"
 
     def __enter__(self) -> FakeResponse:
@@ -36,8 +40,10 @@ class FakeResponse:
 
     def read(self, size: int = -1) -> bytes:
         if size < 0:
-            return self.payload
-        return self.payload[:size]
+            size = len(self.payload) - self.offset
+        chunk = self.payload[self.offset : self.offset + size]
+        self.offset += len(chunk)
+        return chunk
 
 
 def test_lastfm_requires_key() -> None:
@@ -149,14 +155,14 @@ def test_itunes_skips_mismatch_then_accepts_full_match(
 
     def fake_get(url: str, **kwargs: object) -> bytes:
         urls.append(url)
-        return payload if len(urls) == 1 else FAKE_JPEG
+        return payload if len(urls) == 1 else VALID_JPEG
 
     provider = ITunesProvider()
     monkeypatch.setattr(provider, "_http_get", fake_get)
 
     result = provider.fetch("The Beatles", "Revolver")
     assert result is not None
-    assert result.image_bytes == FAKE_JPEG
+    assert result.image_bytes == VALID_JPEG
     assert all("/bad/" not in url for url in urls)
     assert any("/good/" in url for url in urls)
 
@@ -215,16 +221,68 @@ def test_deezer_skips_mismatch_then_accepts_full_match(
 
     def fake_get(url: str, **kwargs: object) -> bytes:
         urls.append(url)
-        return payload if len(urls) == 1 else FAKE_JPEG
+        return payload if len(urls) == 1 else VALID_JPEG
 
     provider = DeezerProvider()
     monkeypatch.setattr(provider, "_http_get", fake_get)
 
     result = provider.fetch("The Beatles", "Revolver")
     assert result is not None
-    assert result.image_bytes == FAKE_JPEG
+    assert result.image_bytes == VALID_JPEG
     assert all("/bad" not in url for url in urls)
     assert any("/good" in url for url in urls)
+
+
+@pytest.mark.parametrize(
+    ("requested", "candidate"),
+    [
+        ("Queen", "Queens of the Stone Age"),
+        ("Air", "Air Supply"),
+        ("Live", "Live at Wembley"),
+    ],
+)
+def test_catalogue_identity_rejects_free_substrings(requested: str, candidate: str) -> None:
+    from coverart_cli.providers.base import _catalogue_text_matches
+
+    assert not _catalogue_text_matches(requested, candidate)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"null",
+        b"[]",
+        b'{"results": null}',
+        b'{"results": [{"artistName": "Artist", "collectionName": "Album", "artworkUrl100": 7}]}',
+    ],
+)
+def test_itunes_treats_schema_drift_as_a_miss(
+    payload: bytes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from coverart_cli.providers import ITunesProvider
+
+    provider = ITunesProvider()
+    monkeypatch.setattr(provider, "_http_get", lambda _url, **_kwargs: payload)
+    assert provider.fetch("Artist", "Album") is None
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"null",
+        b"[]",
+        b'{"data": null}',
+        b'{"data": [{"artist": {"name": "Artist"}, "title": "Album", "cover_xl": 7}]}',
+    ],
+)
+def test_deezer_treats_schema_drift_as_a_miss(
+    payload: bytes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from coverart_cli.providers import DeezerProvider
+
+    provider = DeezerProvider()
+    monkeypatch.setattr(provider, "_http_get", lambda _url, **_kwargs: payload)
+    assert provider.fetch("Artist", "Album") is None
 
 
 def test_safe_url_for_log_strips_api_key() -> None:
@@ -272,18 +330,14 @@ class FakeOpener:
 
 
 def test_http_get_rejects_responses_over_size_cap(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        urllib.request, "build_opener", lambda *handlers: FakeOpener(b"x" * 11)
-    )
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *handlers: FakeOpener(b"x" * 11))
 
     result = DummyProvider()._http_get("https://example.com/cover.jpg", max_bytes=10)
     assert result is None
 
 
 def test_http_get_accepts_responses_at_size_cap(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        urllib.request, "build_opener", lambda *handlers: FakeOpener(b"x" * 10)
-    )
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *handlers: FakeOpener(b"x" * 10))
 
     result = DummyProvider()._http_get("https://example.com/cover.jpg", max_bytes=10)
     assert result == b"x" * 10
@@ -315,3 +369,341 @@ def test_redirect_handler_blocks_disallowed_host() -> None:
             {},
             "https://127.0.0.1/private",
         )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [b"null", b"[]", b'{"album": null}', b'{"album": {"image": null}}'],
+)
+def test_lastfm_treats_schema_drift_as_a_miss(
+    payload: bytes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = LastFmProvider("key")
+    monkeypatch.setattr(provider, "_http_get", lambda _url, **_kwargs: payload)
+    assert provider.fetch("Artist", "Album") is None
+
+
+@pytest.mark.parametrize("error_code", [4, 8, 29, 999])
+def test_lastfm_surfaces_explicit_error_payload(
+    error_code: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = LastFmProvider("key")
+    monkeypatch.setattr(
+        provider,
+        "_http_get",
+        lambda _url, **_kwargs: json.dumps(
+            {"error": error_code, "message": "untrusted provider detail"}
+        ).encode(),
+    )
+
+    with pytest.raises(ProviderUnavailable, match=f"Last.fm API error {error_code}"):
+        provider.fetch("Artist", "Album")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [b"null", b"[]", b'{"release-groups": null}', b'{"release-groups": [null]}'],
+)
+def test_musicbrainz_treats_schema_drift_as_a_miss(
+    payload: bytes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = MusicBrainzProvider()
+    monkeypatch.setattr(provider, "_http_get", lambda _url, **_kwargs: payload)
+    monkeypatch.setattr(provider, "_respect_rate_limit", lambda: None)
+    assert provider.fetch("Artist", "Album") is None
+
+
+def test_catalogue_identity_preserves_exact_punctuation_only_names() -> None:
+    from coverart_cli.providers.base import _catalogue_text_matches
+
+    assert _catalogue_text_matches("!!!", "!!!")
+    assert not _catalogue_text_matches("!!!", "???")
+
+
+def test_http_get_honors_bounded_retry_after(monkeypatch: pytest.MonkeyPatch) -> None:
+    class RetryOpener:
+        attempts = 0
+
+        def open(self, request: urllib.request.Request, timeout: int) -> FakeResponse:
+            self.attempts += 1
+            if self.attempts == 1:
+                headers = Message()
+                headers["Retry-After"] = "999"
+                raise urllib.error.HTTPError(
+                    request.full_url,
+                    429,
+                    "rate limited",
+                    headers,
+                    None,
+                )
+            return FakeResponse(b"ok")
+
+    opener = RetryOpener()
+    sleeps: list[float] = []
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *handlers: opener)
+    monkeypatch.setattr("coverart_cli.providers.base.time.sleep", sleeps.append)
+
+    assert DummyProvider()._http_get("https://example.com/cover.jpg", retries=1) == b"ok"
+    assert sleeps == [120.0]
+
+
+def test_http_get_honors_retry_after_http_date(monkeypatch: pytest.MonkeyPatch) -> None:
+    class RetryOpener:
+        attempts = 0
+
+        def open(self, request: urllib.request.Request, timeout: int) -> FakeResponse:
+            self.attempts += 1
+            if self.attempts == 1:
+                headers = Message()
+                headers["Retry-After"] = formatdate(60, usegmt=True)
+                raise urllib.error.HTTPError(request.full_url, 429, "limited", headers, None)
+            return FakeResponse(b"ok")
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *handlers: RetryOpener())
+    monkeypatch.setattr("coverart_cli.providers.base.time.time", lambda: 0.0)
+    monkeypatch.setattr("coverart_cli.providers.base.time.sleep", sleeps.append)
+
+    assert DummyProvider()._http_get("https://example.com/cover.jpg", retries=1) == b"ok"
+    assert sleeps == [60.0]
+
+
+def test_http_get_honors_retry_after_on_service_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class RetryOpener:
+        attempts = 0
+
+        def open(self, request: urllib.request.Request, timeout: int) -> FakeResponse:
+            self.attempts += 1
+            if self.attempts == 1:
+                headers = Message()
+                headers["Retry-After"] = "60"
+                raise urllib.error.HTTPError(request.full_url, 503, "down", headers, None)
+            return FakeResponse(b"ok")
+
+    opener = RetryOpener()
+    sleeps: list[float] = []
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *handlers: opener)
+    monkeypatch.setattr("coverart_cli.providers.base.time.sleep", sleeps.append)
+
+    assert DummyProvider()._http_get("https://example.com/cover.jpg", retries=1) == b"ok"
+    assert sleeps == [60.0]
+
+
+def test_http_get_retries_connection_reset_during_body_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class BrokenResponse(FakeResponse):
+        def read(self, size: int = -1) -> bytes:
+            raise ConnectionResetError("reset")
+
+    class RetryOpener:
+        attempts = 0
+
+        def open(self, request: urllib.request.Request, timeout: int) -> FakeResponse:
+            self.attempts += 1
+            return BrokenResponse(b"") if self.attempts == 1 else FakeResponse(b"ok")
+
+    opener = RetryOpener()
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *handlers: opener)
+    monkeypatch.setattr("coverart_cli.providers.base.time.sleep", lambda _delay: None)
+
+    assert DummyProvider()._http_get("https://example.com/cover.jpg", retries=1) == b"ok"
+    assert opener.attempts == 2
+
+
+def test_musicbrainz_rate_limit_uses_monotonic_clock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = MusicBrainzProvider()
+    ticks = iter([100.0, 100.2])
+    sleeps: list[float] = []
+    monkeypatch.setattr("coverart_cli.providers.musicbrainz.time.monotonic", lambda: next(ticks))
+    monkeypatch.setattr("coverart_cli.providers.musicbrainz.time.sleep", sleeps.append)
+    provider._last_request = 99.5
+
+    provider._respect_rate_limit()
+
+    assert sleeps == [pytest.approx(0.6)]
+    assert provider._last_request == 100.2
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        urllib.error.URLError("offline"),
+        urllib.error.HTTPError("https://example.com", 503, "down", Message(), None),
+        urllib.error.HTTPError("https://example.com", 429, "limited", Message(), None),
+    ],
+)
+def test_http_get_surfaces_exhausted_transient_failure(
+    error: Exception, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FailingOpener:
+        def open(self, request: urllib.request.Request, timeout: int) -> FakeResponse:
+            raise error
+
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *handlers: FailingOpener())
+
+    with pytest.raises(ProviderUnavailable):
+        DummyProvider()._http_get("https://example.com/cover.jpg", retries=0)
+
+
+def test_http_get_keeps_not_found_distinct_from_outage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class MissingOpener:
+        def open(self, request: urllib.request.Request, timeout: int) -> FakeResponse:
+            raise urllib.error.HTTPError(request.full_url, 404, "missing", Message(), None)
+
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *handlers: MissingOpener())
+
+    assert DummyProvider()._http_get("https://example.com/cover.jpg", retries=0) is None
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_http_get_surfaces_authorization_failure(
+    status: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class UnauthorizedOpener:
+        def open(self, request: urllib.request.Request, timeout: int) -> FakeResponse:
+            raise urllib.error.HTTPError(request.full_url, status, "unauthorized", Message(), None)
+
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *handlers: UnauthorizedOpener())
+
+    with pytest.raises(ProviderUnavailable, match=f"HTTP {status}"):
+        DummyProvider()._http_get("https://example.com/cover.jpg", retries=0)
+
+
+def test_itunes_rate_limiter_runs_for_every_search_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from coverart_cli.providers import ITunesProvider
+
+    class RetryOpener:
+        attempts = 0
+
+        def open(self, request: urllib.request.Request, timeout: int) -> FakeResponse:
+            self.attempts += 1
+            if self.attempts == 1:
+                raise urllib.error.HTTPError(request.full_url, 503, "down", Message(), None)
+            response = FakeResponse(b'{"results": []}')
+            response.url = request.full_url
+            return response
+
+    limiter_calls: list[None] = []
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *handlers: RetryOpener())
+    monkeypatch.setattr("coverart_cli.providers.base.time.sleep", lambda _delay: None)
+    provider = ITunesProvider()
+    monkeypatch.setattr(provider, "_respect_rate_limit", lambda: limiter_calls.append(None))
+
+    assert provider.fetch("Artist", "Album") is None
+    assert len(limiter_calls) == 2
+
+
+def test_lastfm_rejects_mismatched_catalogue_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = json.dumps(
+        {
+            "album": {
+                "artist": "The Beatles",
+                "name": "Abbey Road",
+                "image": [{"size": "mega", "#text": "https://img.test/cover.jpg"}],
+            }
+        }
+    ).encode()
+    urls: list[str] = []
+    provider = LastFmProvider("key")
+
+    def fake_get(url: str, **kwargs: object) -> bytes:
+        urls.append(url)
+        return payload
+
+    monkeypatch.setattr(provider, "_http_get", fake_get)
+
+    assert provider.fetch("Pink Floyd", "The Wall") is None
+    assert len(urls) == 1
+
+
+def test_musicbrainz_rejects_mismatched_catalogue_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = json.dumps(
+        {
+            "release-groups": [
+                {
+                    "id": "123e4567-e89b-12d3-a456-426614174000",
+                    "score": 100,
+                    "title": "Abbey Road",
+                    "artist-credit": [{"name": "The Beatles"}],
+                }
+            ]
+        }
+    ).encode()
+    urls: list[str] = []
+    provider = MusicBrainzProvider()
+    monkeypatch.setattr(provider, "_respect_rate_limit", lambda: None)
+
+    def fake_get(url: str, **kwargs: object) -> bytes:
+        urls.append(url)
+        return payload
+
+    monkeypatch.setattr(provider, "_http_get", fake_get)
+
+    assert provider.fetch("Pink Floyd", "The Wall") is None
+    assert len(urls) == 1
+
+
+def test_lastfm_accepts_exact_catalogue_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    image_url = "https://lastfm.freetls.fastly.net/cover.jpg"
+    payload = json.dumps(
+        {
+            "album": {
+                "artist": "Pink Floyd",
+                "name": "The Wall",
+                "image": [{"size": "mega", "#text": image_url}],
+            }
+        }
+    ).encode()
+    provider = LastFmProvider("key")
+    monkeypatch.setattr(
+        provider,
+        "_http_get",
+        lambda url, **_kwargs: VALID_JPEG if url == image_url else payload,
+    )
+
+    result = provider.fetch("Pink Floyd", "The Wall")
+    assert result is not None
+    assert result.image_bytes == VALID_JPEG
+
+
+def test_musicbrainz_accepts_exact_catalogue_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = json.dumps(
+        {
+            "release-groups": [
+                {
+                    "id": "123e4567-e89b-12d3-a456-426614174000",
+                    "score": "100",
+                    "title": "The Wall",
+                    "artist-credit": [{"name": "Pink Floyd"}],
+                }
+            ]
+        }
+    ).encode()
+    provider = MusicBrainzProvider()
+    monkeypatch.setattr(provider, "_respect_rate_limit", lambda: None)
+    monkeypatch.setattr(
+        provider,
+        "_http_get",
+        lambda url, **_kwargs: VALID_JPEG if "coverartarchive" in url else payload,
+    )
+
+    result = provider.fetch("Pink Floyd", "The Wall")
+    assert result is not None
+    assert result.image_bytes == VALID_JPEG

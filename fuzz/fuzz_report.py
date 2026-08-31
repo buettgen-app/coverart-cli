@@ -7,13 +7,13 @@ import urllib.parse
 
 import atheris  # type: ignore[missing-import]
 
-with atheris.instrument_imports():
+with atheris.instrument_imports():  # pyrefly: ignore [missing-attribute]
     from coverart_cli.providers.base import _safe_url_for_log
     from coverart_cli.report import AlbumEntry, build_report
 
 
 def TestOneInput(data: bytes) -> None:  # noqa: N802 - Atheris convention
-    provider = atheris.FuzzedDataProvider(data)
+    provider = atheris.FuzzedDataProvider(data)  # pyrefly: ignore [missing-attribute]
     value = provider.ConsumeUnicodeNoSurrogates(512)
 
     safe_url = _safe_url_for_log(value)
