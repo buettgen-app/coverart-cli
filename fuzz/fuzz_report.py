@@ -20,6 +20,10 @@ def TestOneInput(data: bytes) -> None:  # noqa: N802 - Atheris convention
     parsed = urllib.parse.urlsplit(safe_url)
     if parsed.query or parsed.fragment:
         raise AssertionError("log-safe URLs must not retain query strings or fragments")
+    if parsed.username is not None or parsed.password is not None or "@" in parsed.netloc:
+        raise AssertionError("log-safe URLs must not retain userinfo")
+    if safe_url not in {"", "<invalid-url>"} and parsed.hostname is None:
+        raise AssertionError("non-empty log URLs must retain a valid host")
 
     entry = AlbumEntry(
         artist=value,

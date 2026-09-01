@@ -23,8 +23,17 @@ def _safe_url_for_log(url: str) -> str:
     """Return a URL safe for logs (scheme + host + path only)."""
     try:
         parsed = urllib.parse.urlsplit(url)
-        return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
-    except Exception:
+        host = parsed.hostname
+        if host is None:
+            if not url:
+                return ""
+            return "<invalid-url>"
+        else:
+            authority = f"[{host}]" if ":" in host else host
+            if parsed.port is not None:
+                authority = f"{authority}:{parsed.port}"
+        return urllib.parse.urlunsplit((parsed.scheme, authority, parsed.path, "", ""))
+    except (TypeError, ValueError):
         return "<invalid-url>"
 
 
@@ -36,9 +45,10 @@ def _is_allowed_https_url(url: str, allowed_hosts: frozenset[str]) -> bool:
     try:
         parsed = urllib.parse.urlsplit(url)
         host = (parsed.hostname or "").lower().rstrip(".")
+        _ = parsed.port
     except (TypeError, ValueError):
         return False
-    if parsed.scheme != "https" or not host:
+    if parsed.scheme != "https" or not host or "@" in parsed.netloc:
         return False
     return any(
         host == pattern.lstrip(".") or (pattern.startswith(".") and host.endswith(pattern))

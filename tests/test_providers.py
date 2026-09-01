@@ -313,12 +313,71 @@ def test_safe_url_for_log_keeps_path() -> None:
     assert sanitized == url  # no query → unchanged
 
 
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://user:password@example.com/cover.jpg", "https://example.com/cover.jpg"),
+        ("https://user%40mail:secret@example.com:8443/a", "https://example.com:8443/a"),
+        ("https://user@example.com/a?token=secret#fragment", "https://example.com/a"),
+        ("https://user:secret@[2001:db8::1]:8443/a", "https://[2001:db8::1]:8443/a"),
+        ("https://:pa%3Ass@example.com/a", "https://example.com/a"),
+        ("https://user:pa%ZZ@example.com/a", "https://example.com/a"),
+        ("https://user:pass@@example.com/a", "https://example.com/a"),
+        ("https://@example.com/a", "https://example.com/a"),
+    ],
+)
+def test_safe_url_for_log_strips_userinfo(url: str, expected: str) -> None:
+    from coverart_cli.providers.base import _safe_url_for_log
+
+    sanitized = _safe_url_for_log(url)
+    assert sanitized == expected
+    assert "user" not in sanitized
+    assert "password" not in sanitized
+    assert "secret" not in sanitized
+    assert "@" not in urllib.parse.urlsplit(sanitized).netloc
+
+
 def test_safe_url_for_log_handles_garbage() -> None:
     from coverart_cli.providers.base import _safe_url_for_log
 
     # Anything urlsplit can parse should round-trip safely; nothing should crash.
     assert "<invalid-url>" not in _safe_url_for_log("https://example.com")
     assert _safe_url_for_log("") == ""
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https:////user:password@example.com/cover.jpg",
+        "https:///user:password@example.com/cover.jpg",
+        "////user:password@example.com/cover.jpg",
+    ],
+)
+def test_safe_url_for_log_rejects_authority_like_path(url: str) -> None:
+    from coverart_cli.providers.base import _safe_url_for_log
+
+    assert _safe_url_for_log(url) == "<invalid-url>"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://user:password@example.com/cover.jpg",
+        "https://user%40mail:secret@example.com/cover.jpg",
+        "https://user@example.com/cover.jpg",
+        "https:////user:password@example.com/cover.jpg",
+        "https:///user:password@example.com/cover.jpg",
+        "////user:password@example.com/cover.jpg",
+    ],
+)
+def test_http_get_rejects_url_userinfo_before_open(
+    url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_if_opened(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("userinfo URL must be rejected before opening")
+
+    monkeypatch.setattr(urllib.request, "build_opener", fail_if_opened)
+    assert DummyProvider()._http_get(url) is None
 
 
 class FakeOpener:
@@ -349,6 +408,8 @@ def test_http_get_accepts_responses_at_size_cap(monkeypatch: pytest.MonkeyPatch)
         "http://example.com/cover.jpg",
         "https://example.com.evil.test/cover.jpg",
         "https://127.0.0.1/cover.jpg",
+        "https://example.com:bad/cover.jpg",
+        "https://example.com:99999/cover.jpg",
     ],
 )
 def test_http_get_blocks_urls_outside_provider_policy(url: str) -> None:
