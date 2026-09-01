@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0](https://github.com/buettgen-app/coverart-cli/compare/v0.6.1...v0.7.0) (2026-09-01)
+
+
+### Features
+
+* add release-please for merge-driven version bumps ([#9](https://github.com/buettgen-app/coverart-cli/issues/9)) ([28ec876](https://github.com/buettgen-app/coverart-cli/commit/28ec8768d70e22c50ebd58e6ca170fb65393eb6c))
+* auto-enable squash auto-merge + CodeRabbit config ([#11](https://github.com/buettgen-app/coverart-cli/issues/11)) ([3756926](https://github.com/buettgen-app/coverart-cli/commit/37569263e397e61d34d3cd865f4935c94432e3a9))
+
+
+### Bug Fixes
+
+* add workflow_dispatch + CodeRabbit badge ([#14](https://github.com/buettgen-app/coverart-cli/issues/14)) ([ffe5bde](https://github.com/buettgen-app/coverart-cli/commit/ffe5bded3dfcbb2277df9036fe322b1778124799))
+* **ci:** add guarded release recovery ([#31](https://github.com/buettgen-app/coverart-cli/issues/31)) ([151ec6f](https://github.com/buettgen-app/coverart-cli/commit/151ec6f91577b8921db4a04a3c5958cc8a2cac4e))
+* **ci:** harden and separate release publishing ([#30](https://github.com/buettgen-app/coverart-cli/issues/30)) ([25c2d13](https://github.com/buettgen-app/coverart-cli/commit/25c2d1390d7a008eb2aab42eb604b9e359197e96))
+* **ci:** restore PyPI publisher identity ([#33](https://github.com/buettgen-app/coverart-cli/issues/33)) ([6ab951f](https://github.com/buettgen-app/coverart-cli/commit/6ab951f5128f084ea7621938f2a22dc1d0609987))
+* close CodeQL review findings ([d35f7e3](https://github.com/buettgen-app/coverart-cli/commit/d35f7e303d15c68e96cb7a37ce2d135462d2e791))
+* complete artwork integrity and release hardening ([37f72cb](https://github.com/buettgen-app/coverart-cli/commit/37f72cbef812e137eb05bd4629c50bc7ea9beb1d))
+* drop failing approve step from Dependabot auto-merge ([#12](https://github.com/buettgen-app/coverart-cli/issues/12)) ([c2f984d](https://github.com/buettgen-app/coverart-cli/commit/c2f984d7417ee811bc80e90ec9b3d2f587ffddb2))
+* enforce artwork and dry-run integrity ([cba3131](https://github.com/buettgen-app/coverart-cli/commit/cba3131e582afd5526e9b0185e6558308dd34fbe))
+* harden artwork writes and complete album coverage ([#43](https://github.com/buettgen-app/coverart-cli/issues/43)) ([900e3a0](https://github.com/buettgen-app/coverart-cli/commit/900e3a02a4c6c093df52528705e053b5640a1d43))
+* honor local artwork quality thresholds ([d0364a2](https://github.com/buettgen-app/coverart-cli/commit/d0364a289ed364d7ac3dba7acb2105abf6b49992))
+* recover draft releases by release metadata ([4663ff6](https://github.com/buettgen-app/coverart-cli/commit/4663ff6e2985edf7321fc9c533020a32293d2667))
+* redact secret query params before logging ([#17](https://github.com/buettgen-app/coverart-cli/issues/17)) ([245d11f](https://github.com/buettgen-app/coverart-cli/commit/245d11fa1e5e7fd8c261736992d6501f3572762b))
+* redact URL userinfo from provider logs ([ece96a4](https://github.com/buettgen-app/coverart-cli/commit/ece96a44410a8936cfc9688ec71cc68e265762ca))
+* restore cross-platform CI gates ([42f4c32](https://github.com/buettgen-app/coverart-cli/commit/42f4c32cd5b90ab54cdbeb12651be705ba66f6be))
+* reuse and detect local artwork consistently ([1970ed8](https://github.com/buettgen-app/coverart-cli/commit/1970ed80dc6574c7d13c418105fe735a47997801))
+* **security:** avoid personal path leaks in reports ([01d3742](https://github.com/buettgen-app/coverart-cli/commit/01d3742591b21e8fa202437c9dba5dce5f568fb4))
+* **security:** avoid personal path leaks in reports ([#27](https://github.com/buettgen-app/coverart-cli/issues/27)) ([01d3742](https://github.com/buettgen-app/coverart-cli/commit/01d3742591b21e8fa202437c9dba5dce5f568fb4))
+* use absolute URL for screenshot so PyPI renders it ([#18](https://github.com/buettgen-app/coverart-cli/issues/18)) ([8279679](https://github.com/buettgen-app/coverart-cli/commit/82796794afa1d3ad0366853d0d7b7ec1a21e43ee))
+* use pepy.tech for PyPI downloads badge ([#16](https://github.com/buettgen-app/coverart-cli/issues/16)) ([84099b3](https://github.com/buettgen-app/coverart-cli/commit/84099b330b348f928d680fd2005ad8e6aa9bf184))
+
 ## [0.6.1](https://github.com/buettgen-app/coverart-cli/compare/v0.6.0...v0.6.1) (2026-08-31)
 
 
