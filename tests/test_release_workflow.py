@@ -1603,7 +1603,6 @@ def test_draft_release_lookup_fails_closed_without_one_match(
     assert result.returncode != 0
 
 
-
 @pytest.mark.parametrize("visible", [True, False])
 def test_ruleset_read_uses_settings_identity_without_changing_publish_identity(
     tmp_path: Path, visible: bool
