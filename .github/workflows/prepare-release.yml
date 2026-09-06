@@ -19,6 +19,25 @@ jobs:
       contents: write
       pull-requests: write
     steps:
+      - name: Check publication of the current manifest version
+        id: publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          manifest="$(gh api "repos/$GITHUB_REPOSITORY/contents/.release-please-manifest.json?ref=$GITHUB_SHA" --jq .content | base64 --decode)"
+          version="$(jq -er '.["."] | select(type == "string" and test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' <<<"$manifest")"
+          releases="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100")"
+          pending="$(jq -ser --arg tag "v$version" '
+            [.[][] | select(.tag_name == $tag)] |
+            if length > 1 then error("ambiguous manifest release")
+            elif length == 1 then
+              if (.[0].draft | type) != "boolean" then error("invalid release state")
+              else .[0].draft | tostring end
+            else "false" end' <<<"$releases")"
+          echo "pending=$pending" >> "$GITHUB_OUTPUT"
+          if [ "$pending" = "true" ]; then
+            echo "::notice::v$version is still a draft; finish its verified publication before preparing another release PR."
+          fi
       - name: Prepare release PR or create release
         id: release
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
@@ -29,8 +48,9 @@ jobs:
           # A newly created draft is not the latest published release yet. Without this guard,
           # release-please immediately opens the next release PR with the same commit history.
           skip-github-pull-request: >-
-            ${{ github.event_name == 'push' &&
-                startsWith(github.event.head_commit.message, 'chore(main): release ') }}
+            ${{ steps.publication.outputs.pending == 'true' ||
+                (github.event_name == 'push' &&
+                 startsWith(github.event.head_commit.message, 'chore(main): release ')) }}
       - name: Start verified publication
         if: ${{ steps.release.outputs.release_created == 'true' }}
         env:
