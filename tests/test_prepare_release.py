@@ -7,6 +7,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+from collections.abc import Sequence
 from pathlib import Path
 
 WORKFLOW = Path(__file__).parents[1] / ".github/workflows/prepare-release.yml"
@@ -25,7 +26,11 @@ def publication_script() -> str:
 
 class PrepareReleaseTests(unittest.TestCase):
     def run_guard(
-        self, pages: list[list[object]], *, manifest: str = "0.6.2", api_failure: bool = False
+        self,
+        pages: Sequence[Sequence[object]],
+        *,
+        manifest: str = "0.6.2",
+        api_failure: bool = False,
     ) -> tuple[int, str]:
         mock = """gh() {
           case "$*" in
