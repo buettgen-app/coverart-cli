@@ -1616,7 +1616,9 @@ def test_ruleset_read_uses_settings_identity_without_changing_publish_identity(
     ruleset["id"] = 42
     if not visible:
         ruleset.pop("bypass_actors")
-    script = helper + r'''
+    script = (
+        helper
+        + r"""
 gh() {
   if [[ "$*" == *"--paginate"* ]]; then
     [ "$GH_TOKEN" = "publish-token" ] || return 91
@@ -1628,7 +1630,8 @@ gh() {
 }
 verify_release_tag_ruleset
 [ "$GH_TOKEN" = "publish-token" ]
-'''
+"""
+    )
     result = subprocess.run(
         ["bash", "-euo", "pipefail", "-c", script],
         cwd=tmp_path,
