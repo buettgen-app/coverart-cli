@@ -95,9 +95,7 @@ class PrepareReleaseTests(unittest.TestCase):
                 self.assertEqual(output, "")
 
     def test_failed_later_page_cannot_use_partial_response(self) -> None:
-        code, output = self.run_guard(
-            [[{"tag_name": "v0.6.2", "draft": False}]], api_failure=True
-        )
+        code, output = self.run_guard([[{"tag_name": "v0.6.2", "draft": False}]], api_failure=True)
         self.assertNotEqual(code, 0)
         self.assertEqual(output, "")
 
