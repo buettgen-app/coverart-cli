@@ -865,9 +865,17 @@ jobs:
                 end
               ' <<<"$pages"
             )"
+            # GitHub hides bypass_actors from callers without ruleset access.
+            # Scope the settings credential to this read; publication still uses GH_TOKEN.
             ruleset="$(
-              gh api "repos/$GITHUB_REPOSITORY/rulesets/$ruleset_id?includes_parents=true"
+              GH_TOKEN="$RELEASE_SETTINGS_TOKEN" gh api \
+                "repos/$GITHUB_REPOSITORY/rulesets/$ruleset_id?includes_parents=true"
             )"
+            if ! jq -e 'has("bypass_actors") and has("current_user_can_bypass")' \
+              <<<"$ruleset" >/dev/null; then
+              echo "::error::Settings credential cannot read complete ruleset bypass metadata."
+              return 1
+            fi
             if ! jq -e "$TAG_RULESET_JQ" <<<"$ruleset" >/dev/null; then
               echo "::error::Release tags are not protected against creation-time update races."
               return 1

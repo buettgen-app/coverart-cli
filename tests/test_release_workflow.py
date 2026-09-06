@@ -1601,3 +1601,51 @@ def test_draft_release_lookup_fails_closed_without_one_match(
     result = _run_release_lookup(pages)
 
     assert result.returncode != 0
+
+
+
+@pytest.mark.parametrize("visible", [True, False])
+def test_ruleset_read_uses_settings_identity_without_changing_publish_identity(
+    tmp_path: Path, visible: bool
+) -> None:
+    helper = _shell_function(
+        _step_run("Bind tag and publish exact verified draft release"),
+        "verify_release_tag_ruleset",
+    )
+    ruleset = _ruleset_payload()
+    ruleset["id"] = 42
+    if not visible:
+        ruleset.pop("bypass_actors")
+    script = helper + r'''
+gh() {
+  if [[ "$*" == *"--paginate"* ]]; then
+    [ "$GH_TOKEN" = "publish-token" ] || return 91
+    printf '[%s]' "$RULESET_JSON"
+  else
+    [ "$GH_TOKEN" = "settings-token" ] || return 92
+    printf '%s' "$RULESET_JSON"
+  fi
+}
+verify_release_tag_ruleset
+[ "$GH_TOKEN" = "publish-token" ]
+'''
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", script],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "GH_TOKEN": "publish-token",
+            "RELEASE_SETTINGS_TOKEN": "settings-token",
+            "GITHUB_REPOSITORY": "buettgen-app/coverart-cli",
+            "RULESET_JSON": json.dumps(ruleset),
+            "TAG_RULESET_JQ": _folded_env_value("TAG_RULESET_JQ"),
+        },
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if visible:
+        assert result.returncode == 0, result.stderr
+    else:
+        assert result.returncode != 0
+        assert "cannot read complete ruleset bypass metadata" in result.stdout
