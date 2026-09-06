@@ -144,7 +144,9 @@ jobs:
     timeout-minutes: 30
     permissions:
       actions: read
-      contents: read
+      # GitHub lists draft releases only for identities with push access.
+      # The job uses GET requests; checkout never persists this token.
+      contents: write
     outputs:
       release_id: ${{ steps.release.outputs.id }}
       draft: ${{ steps.release.outputs.draft }}
@@ -349,8 +351,10 @@ jobs:
           if ! git diff --quiet "$VALIDATED_DRAFT_TARGET" HEAD -- \
             . \
             ':(exclude).github/workflows/release.yml' \
+            ':(exclude).github/workflows/prepare-release.yml' \
             ':(exclude).github/workflows/ci.yml' \
             ':(exclude)tests/test_release_workflow.py' \
+            ':(exclude)tests/test_prepare_release.py' \
             ':(exclude)CHANGELOG.md' \
             ':(exclude)README.md' \
             ':(exclude)requirements-attestation.in' \

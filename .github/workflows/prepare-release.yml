@@ -15,6 +15,9 @@ jobs:
   release-please:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    outputs:
+      pending: ${{ steps.publication.outputs.pending }}
+      tag: ${{ steps.publication.outputs.tag }}
     permissions:
       contents: write
       pull-requests: write
@@ -35,6 +38,7 @@ jobs:
               else .[0].draft | tostring end
             else "false" end' <<<"$releases")"
           echo "pending=$pending" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
           if [ "$pending" = "true" ]; then
             echo "::notice::v$version is still a draft; finish its verified publication before preparing another release PR."
           fi
@@ -66,3 +70,26 @@ jobs:
             --arg run_id "$RELEASE_RUN_ID" \
             '{event_type: $event_type, client_payload: {tag: $tag, sha: $sha, run_id: $run_id}}' |
             gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" --input -
+
+  recover-publication:
+    name: Recover pending publication through the verified workflow
+    needs: release-please
+    if: needs.release-please.outputs.pending == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Start normal release recovery from main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Recovery requires a stable manifest release tag."
+            exit 1
+          fi
+          jq -n --arg tag "$RELEASE_TAG" \
+            '{ref: "main", inputs: {tag: $tag}}' |
+            gh api --method POST \
+              "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/dispatches" --input -

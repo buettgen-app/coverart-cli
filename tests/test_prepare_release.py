@@ -70,23 +70,23 @@ class PrepareReleaseTests(unittest.TestCase):
                     [{"tag_name": "v0.6.2", "draft": True}],
                 ]
             ),
-            (0, "pending=true\n"),
+            (0, "pending=true\ntag=v0.6.2\n"),
         )
 
     def test_published_current_release_allows_next_pr(self) -> None:
         self.assertEqual(
             self.run_guard([[{"tag_name": "v0.6.2", "draft": False}]]),
-            (0, "pending=false\n"),
+            (0, "pending=false\ntag=v0.6.2\n"),
         )
 
     def test_old_draft_does_not_block_new_version(self) -> None:
         self.assertEqual(
             self.run_guard([[{"tag_name": "v0.6.1", "draft": True}]]),
-            (0, "pending=false\n"),
+            (0, "pending=false\ntag=v0.6.2\n"),
         )
 
     def test_new_release_can_be_created(self) -> None:
-        self.assertEqual(self.run_guard([[]]), (0, "pending=false\n"))
+        self.assertEqual(self.run_guard([[]]), (0, "pending=false\ntag=v0.6.2\n"))
 
     def test_ambiguous_or_malformed_state_stops(self) -> None:
         for matches in (
@@ -114,6 +114,25 @@ class PrepareReleaseTests(unittest.TestCase):
         self.assertIn("steps.publication.outputs.pending == 'true'", workflow)
         self.assertNotIn("skip-github-release:", workflow)
         self.assertIn("steps.release.outputs.release_created == 'true'", workflow)
+
+    def test_recovery_uses_existing_main_only_publisher(self) -> None:
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        recovery = workflow.split("\n  recover-publication:", 1)[1]
+        self.assertIn("if: needs.release-please.outputs.pending == 'true'", recovery)
+        self.assertIn("actions: write", recovery)
+        self.assertNotIn("contents: write", recovery)
+        self.assertIn('{ref: "main", inputs: {tag: $tag}}', recovery)
+        self.assertIn("/actions/workflows/release.yml/dispatches", recovery)
+        self.assertNotIn("/releases", recovery)
+
+    def test_draft_lookup_has_push_access_without_persisted_credentials(self) -> None:
+        workflow = (WORKFLOW.parent / "release.yml").read_text(encoding="utf-8")
+        validate = workflow.split("\n  validate:", 1)[1].split("\n  test:", 1)[0]
+        self.assertIn("contents: write", validate)
+        self.assertIn("persist-credentials: false", validate)
+        self.assertNotIn("--method POST", validate)
+        self.assertNotIn("--method PATCH", validate)
+        self.assertNotIn("--method DELETE", validate)
 
 
 if __name__ == "__main__":
