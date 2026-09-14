@@ -38,7 +38,7 @@ dev = [
     "pyrefly==1.2.0",
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
-    "ruff==0.16.5",
+    "ruff==0.16.6",
     "zizmor==1.30.0",
 ]
 
