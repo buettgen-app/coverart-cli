@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -165,6 +166,7 @@ jobs:
             tests/test_providers.py tests/test_report.py tests/test_integration.py \
             tests/test_filesystem.py tests/test_security_boundaries.py \
             tests/test_repository_hygiene.py tests/test_coverage_gate.py \
+            tests/test_complete_release.py \
             --cov=coverart_cli --cov=scripts --cov-report=term-missing --cov-fail-under=87 \
             --cov-report=json:coverage-results/report.json \
             --cov-report=xml:coverage-results/coverage.xml \

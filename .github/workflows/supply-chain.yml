@@ -8,6 +8,13 @@ on:
   schedule:
     - cron: "37 6 * * 1"
   workflow_dispatch:
+    inputs:
+      base_sha:
+        description: Base commit for an automatic release dependency review
+        type: string
+      head_sha:
+        description: Head commit for an automatic release dependency review
+        type: string
 
 permissions:
   contents: read
@@ -34,7 +41,7 @@ jobs:
 
   dependency-review:
     name: dependency review
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || (inputs.base_sha != '' && inputs.head_sha != '')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -43,6 +50,8 @@ jobs:
           persist-credentials: false
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
+          base-ref: ${{ github.event.pull_request.base.sha || inputs.base_sha }}
+          head-ref: ${{ github.event.pull_request.head.sha || inputs.head_sha }}
           fail-on-severity: moderate
           fail-on-scopes: runtime, development, unknown
           vulnerability-check: true
@@ -50,7 +59,7 @@ jobs:
 
   scorecard:
     name: OpenSSF Scorecard
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && inputs.head_sha == ''
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
