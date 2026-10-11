@@ -49,7 +49,10 @@ documentation-only changes. Keep strict up-to-date branch checks and resolved
 review threads enabled. Use GitHub Actions as the expected check source when
 configuring protection; creating a job does not automatically make it a required
 repository gate. Existing individual required checks can remain until a
-maintainer has verified the aggregate check on a real PR.
+maintainer has verified the aggregate check on a real PR. Dependabot auto-merge
+is enabled only when the classic branch protection registers CI gate, PR Security
+Baseline and Atheris security boundaries with GitHub Actions as their source.
+Until then updates require manual integration; no missing gate is bypassed.
 
 The existing weekly Dependabot and supply-chain workflows remain useful;
 additional external review services are not needed to run these checks.
