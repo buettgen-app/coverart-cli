@@ -51,6 +51,7 @@ class AlbumMeta:
 
     artist: str
     album: str
+    album_artist: str | None = None
 
     def __str__(self) -> str:
         return f"{self.artist} / {self.album}"
@@ -155,7 +156,9 @@ def read_album_meta(
     album = album_list[0].strip()
     if not artist or not album:
         return None
-    return AlbumMeta(artist=artist, album=album)
+    album_artist_list = f.get("albumartist") or []
+    album_artist = album_artist_list[0].strip() if album_artist_list else None
+    return AlbumMeta(artist=artist, album=album, album_artist=album_artist or None)
 
 
 def find_sidecar(

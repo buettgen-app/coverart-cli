@@ -83,8 +83,10 @@ Music/
         └── cover.jpg
 ```
 
-A root containing readable tags from multiple albums is rejected for writing.
-Organize loose tracks into album directories before processing them. By default,
+A root with conflicting album identities, or a mix of readable and unreadable
+identities, is excluded from writing and reports. Compilations may have different
+track artists when their album identity agrees. Organize loose tracks into album
+directories before processing them. By default,
 processing skips an album only when a usable sidecar exists **and every supported
 track has embedded artwork**. Disabling an output removes that requirement from
 the completion check.
