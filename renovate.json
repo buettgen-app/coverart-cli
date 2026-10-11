@@ -12,7 +12,7 @@
     "managerFilePatterns": ["/^requirements-(attestation|ci|build|fuzz)\\.txt$/"]
   },
   "pre-commit": { "enabled": true },
-  "constraints": { "uv": "==0.12.7", "python": "==3.11" },
+  "constraints": { "uv": "==0.13.0", "python": "==3.11" },
   "lockFileMaintenance": { "enabled": true },
   "vulnerabilityAlerts": {
     "enabled": true,
