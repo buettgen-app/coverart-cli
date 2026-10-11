@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3](https://github.com/buettgen-app/coverart-cli/compare/v0.7.2...v0.7.3) (2026-10-11)
+
+
+### Bug Fixes
+
+* tolerate delayed PyPI artifact visibility within release timeouts ([ade1da1](https://github.com/buettgen-app/coverart-cli/commit/ade1da1104c54576edb27fa83b8775dbeb5c3ed9))
+
 ## [0.7.2](https://github.com/buettgen-app/coverart-cli/compare/v0.7.1...v0.7.2) (2026-10-11)
 
 
