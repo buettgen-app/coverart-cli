@@ -27,7 +27,8 @@ updates require individual review. CI checks that every lock is canonical.
 
 ## Interpreter and toolchain policy
 
-Tooling, build, attestation and smoke jobs use Python 3.15. The Linux test
+Tooling, build, attestation and smoke jobs use Python 3.15. `.python-version`
+also selects that minor for local interpreter managers such as uv. The Linux test
 matrix also checks every supported minor from 3.11 through 3.15; native Windows
 checks the oldest supported minor and 3.15. `setup-python` uses `check-latest`
 so a cached older patch does not silently replace the current patch release.
