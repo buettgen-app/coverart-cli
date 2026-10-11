@@ -181,7 +181,7 @@ def _folded_env_value(name: str, workflow: Path = RELEASE_WORKFLOW) -> str:
     ],
 )
 def test_recovery_contract_accepts_only_the_original_merged_release_pr(mutation):
-    pr = {
+    pr: dict[str, Any] = {
         "merged_at": "2026-10-11T18:00:00Z",
         "merge_commit_sha": RELEASE_SHA,
         "title": f"chore(main): release {RELEASE_TAG[1:]}",
