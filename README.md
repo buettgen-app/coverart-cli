@@ -219,6 +219,9 @@ print(stats.fetched_from, stats.not_found, stats.errors)
 
 ## Development
 
+Dependency updates are configured through [Renovate](docs/dependency-updates.md),
+including Python hash locks, GitHub Actions and pre-commit hooks.
+
 Use the checked-in hash locks and the same editable-install approach as CI:
 
 ```bash
