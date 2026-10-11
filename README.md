@@ -47,7 +47,7 @@ changes that may be awaiting release.
 
 ### Windows (PowerShell)
 
-Install Python 3.11+ and pipx, then open a new PowerShell window after `ensurepath`:
+Install Python 3.15 (recommended; 3.11+ supported) and pipx, then open a new PowerShell window after `ensurepath`:
 
 ```powershell
 py -m pip install --user pipx
@@ -290,7 +290,7 @@ pytest --cov=coverart_cli --cov-report=term-missing --cov-fail-under=78
 ```
 
 Install FFmpeg to enable the audio-stream preservation oracle used in CI.
-The Linux test matrix covers Python 3.11–3.14; additional jobs check macOS
+The Linux test matrix covers Python 3.11–3.15; additional jobs check macOS
 metadata preservation and native Windows processing, handle locking and junction rejection.
 CodeQL, Zizmor, dependency review, fuzzing, and reproducible artifact builds
 provide separate checks.

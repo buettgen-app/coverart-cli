@@ -25,6 +25,23 @@ Python non-major updates are grouped so shared sources and locks stay together.
 GitHub Actions and pre-commit hooks have separate non-major groups; major
 updates require individual review. CI checks that every lock is canonical.
 
+## Interpreter and toolchain policy
+
+Tooling, build, attestation and smoke jobs use Python 3.15. The Linux test
+matrix also checks every supported minor from 3.11 through 3.15; native Windows
+checks the oldest supported minor and 3.15. `setup-python` uses `check-latest`
+so a cached older patch does not silently replace the current patch release.
+The universal hash locks and Renovate resolver retain Python 3.11 as the
+compatibility floor; that constraint is not the preferred runtime version.
+
+The fuzz job uses Python 3.14 with Atheris 3.1.0 because that release provides
+CPython wheels through 3.14, without a 3.15 wheel. Revisit the exception when
+upstream adds support and verify both fuzz targets before changing it.
+Release availability was checked against Python.org, PyPI, Go's download
+metadata and upstream Git tags on 11 October 2026. CI uses Go 1.27.2, uv 0.13.0
+and full commit SHAs for Actions; the pre-commit hooks track their latest stable
+release tags. These versions are checked by the normal CI gates before merging.
+
 ## Activation and migration
 
 1. Install or configure the [Renovate GitHub App](https://github.com/apps/renovate)

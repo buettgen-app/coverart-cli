@@ -31,7 +31,7 @@ forks; ordinary PRs leave that history intact.
 ## Merge gates
 
 `CI gate` succeeds only if every job in `ci.yml` succeeds, including all four
-Python versions, macOS metadata preservation, native Windows processing on Python 3.11 and 3.14, handle locking and junction rejection, repository
+Python versions, macOS metadata preservation, native Windows processing on Python 3.11 and 3.15, handle locking and junction rejection, repository
 hygiene, all four canonical dependency locks, wheel smoke testing and reproducible
 wheel/sdist builds. Failed, cancelled or skipped dependencies fail this gate.
 
