@@ -1,220 +1,246 @@
 # coverart-cli
 
-> Fill the missing covers in your music library — embed and sidecar in one pass.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/buettgen-app/coverart-cli/main/docs/screenshots/report-dark.png" alt="HTML coverage report" width="100%" />
-</p>
+**Album artwork in your audio tags, beside your tracks, and in a searchable report.**
 
 [![CI](https://github.com/buettgen-app/coverart-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/buettgen-app/coverart-cli/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/buettgen-app/coverart-cli/actions/workflows/codeql.yml/badge.svg)](https://github.com/buettgen-app/coverart-cli/actions/workflows/codeql.yml)
-[![PyPI](https://img.shields.io/pypi/v/coverart-cli.svg?color=blue)](https://pypi.org/project/coverart-cli/)
-[![PyPI downloads](https://static.pepy.tech/badge/coverart-cli/month)](https://pypi.org/project/coverart-cli/)
-[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/coverart-cli)](https://pypi.org/project/coverart-cli/)
+[![Python](https://img.shields.io/pypi/pyversions/coverart-cli)](https://pypi.org/project/coverart-cli/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-## What it does
+Fill missing artwork from iTunes, Deezer, MusicBrainz / Cover Art Archive, and
+optionally Last.fm. One run embeds artwork into supported audio files and writes
+a sidecar for players that read covers from the album folder. Existing local
+artwork is reused where possible.
 
-Most cover-art tools only embed _or_ only sidecar. That breaks across players —
-Subsonic apps (Amperfy, Symfonium) read tags, Plex / Jellyfin prefer `cover.jpg`,
-Apple Music wants embedded. `coverart-cli` does both in one pass and ships an
-HTML coverage report so you can see what's still missing.
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/buettgen-app/coverart-cli/main/docs/screenshots/report-light.png">
+  <img src="https://raw.githubusercontent.com/buettgen-app/coverart-cli/main/docs/screenshots/report-dark.png" alt="Coverart HTML report with album artwork, coverage statistics, search, and filters" width="100%">
+</picture>
+
+[Quick start](#quick-start) · [Workflows](#common-workflows) ·
+[Configuration](#configuration) · [Reports](#html-report) ·
+[Development](#development) · [Changelog](CHANGELOG.md)
 
 ## Install
 
+Requires **Python 3.11+ on Linux or macOS**. Windows library processing is currently
+unsupported: it requires directory-relative, no-follow filesystem APIs.
+
+Install in an isolated tool environment with either
+[pipx](https://pipx.pypa.io/) or [uv](https://docs.astral.sh/uv/):
+
 ```bash
 pipx install coverart-cli
+# Or:
+uv tool install coverart-cli
+
+coverart --version
 ```
 
-Requires Python 3.11 or newer. Upgrade an existing installation with
-`pipx upgrade coverart-cli`.
+Upgrade with `pipx upgrade coverart-cli` or `uv tool upgrade coverart-cli`.
+PyPI contains the latest published release; this README also documents repository
+changes that may be awaiting release.
 
 ## Quick start
 
 ```bash
-# 1. Preview the exact library first; this performs no writes
+# Preview fetching and planned changes without writing files.
 coverart ~/Music --dry-run -v
 
-# 2. Fetch + embed + sidecar (free providers, no key needed)
+# Fill missing embedded artwork and album-folder sidecars.
 coverart ~/Music
 
-# Optional: add Last.fm as the first provider
-LASTFM_API_KEY=your-key coverart ~/Music
-
-# Just generate the coverage report
+# Inspect coverage locally without contacting any provider.
 coverart ~/Music --report-only --report-html report.html
-
-# Only write cover.jpg files; leave audio tags unchanged
-coverart ~/Music --no-embed
 ```
 
-Run `coverart --help` for the full flag list.
+Open `report.html` in your browser. The default providers require no API key.
+To enable Last.fm as the first provider, set `LASTFM_API_KEY` in your environment;
+get a key from [Last.fm](https://www.last.fm/api/account/create).
 
-`--dry-run` never writes files and therefore cannot be combined with
-`--report-html` or `--missing-csv`; generate those outputs in a separate run.
+Dry runs still contact providers and download candidate images. They write
+neither tags nor sidecars and cannot be combined with `--report-html` or
+`--missing-csv`. Use a separate report-only run for a local coverage check.
 
-By default, an album is complete only when it has a usable sidecar **and every
-supported audio file has embedded artwork**. If a local sidecar already exists,
-it is reused to fill missing embeds without a network request. Symbolic links to
-album directories, audio files, or sidecars are ignored, so writes stay inside
-the selected library.
+## How it works
 
-Before the first non-dry run, keep a backup of irreplaceable music files. Tag
-writes are handled by [Mutagen](https://mutagen.readthedocs.io/), but any bulk
-metadata operation deserves a recovery path. Do not move or rename library
-directories concurrently with a write run. Root-anchored traversal rejects
-symlink swaps, but on POSIX a directory rename by another process does not
-revoke a directory descriptor that is already open.
+1. Discover supported audio files in album directories, including the selected
+   root when it is itself an album folder.
+2. Read album artist and album tags; fall back to `Artist/Album/` directory names
+   when readable tags are absent.
+3. Reuse a suitable local sidecar to fill missing embeds, or try enabled providers
+   in order until valid artwork is found.
+4. Write the requested outputs, retaining existing artwork unless an upgrade
+   threshold is configured.
 
-## Config file
-
-Save your defaults so you don't have to repeat flags:
-
-```toml
-# ~/.config/coverart-cli/config.toml
-lastfm_key      = "your-key"
-min_bytes       = 30000
-replace_smaller = true
-no_musicbrainz  = false
+```text
+Music/
+└── Artist/
+    └── Album/
+        ├── 01 - Track.mp3
+        ├── 02 - Track.mp3
+        └── cover.jpg
 ```
 
-Lookup order (later wins): built-in defaults →
-`~/.config/coverart-cli/config.toml` → `./coverart.toml` → `--config PATH` →
-CLI flags. `LASTFM_API_KEY` overrides the configured key unless
-`--lastfm-key` is supplied. Run `coverart ~/Music` afterwards with no repeated
-flags. An explicit CLI value always wins, even when it equals the built-in
-default. Use `--embed`, `--sidecar`, `--no-dry-run`, `--no-report-html`, or
-`--no-missing-csv` to temporarily clear the corresponding configured action.
-
-## Sources
-
-Tried in order until a cover is found:
-
-1. **Last.fm** — `album.getinfo` (needs a free [API key](https://www.last.fm/api/account/create))
-2. **iTunes** — Apple Music's public search, no key
-3. **Deezer** — public API, no key
-4. **MusicBrainz** + **Cover Art Archive** — fallback for niche releases
-
-Album and artist names are sent to the enabled providers over HTTPS. Download
-URLs and redirects are restricted to the providers' API and image hosts;
-arbitrary hosts and non-HTTPS URLs are rejected.
-
-## Supported formats
-
-MP3 (ID3 APIC), M4A/M4B/MP4 (covr atom), FLAC (Picture block),
-Ogg Vorbis / Opus (metadata_block_picture).
-
-Library traversal and mutation require directory-relative, no-follow file APIs
-available on Linux and macOS. The CLI rejects unsupported platforms before
-contacting any provider, rather than risk following a replaced path component.
-
-Cover inputs are accepted only when Pillow can fully decode them as JPEG or PNG, up to 20 MiB
-and within the documented dimension limits. Report thumbnails also use a global size budget so
-very large libraries cannot make the self-contained HTML grow without bound.
-Malformed, oversized, or unrecognized provider payloads and local sidecars are
-ignored instead of being written into tags.
+A root containing readable tags from multiple albums is rejected for writing.
+Organize loose tracks into album directories before processing them. By default,
+processing skips an album only when a usable sidecar exists **and every supported
+track has embedded artwork**. Disabling an output removes that requirement from
+the completion check.
 
 ## Common workflows
 
 | Goal | Command |
 | --- | --- |
-| Preview all changes | `coverart ~/Music --dry-run -v` |
-| Upgrade small artwork | `coverart ~/Music --min-bytes 30000 --replace-smaller` |
-| Embed only | `coverart ~/Music --no-sidecar` |
-| Sidecars only | `coverart ~/Music --no-embed` |
-| Disable directory-name fallback | `coverart ~/Music --no-fallback-dirnames` |
-| Export misses | `coverart ~/Music --missing-csv missing.csv` |
-| Build an HTML report | `coverart ~/Music --report-only --report-html report.html` |
+| Preview a library | `coverart ~/Music --dry-run -v` |
+| Process one album | `coverart "$HOME/Music/Artist/Album"` |
+| Write sidecars only | `coverart ~/Music --no-embed` |
+| Embed artwork only | `coverart ~/Music --no-sidecar` |
+| Upgrade artwork below 30,000 bytes | `coverart ~/Music --min-bytes 30000` |
+| Use tags without directory fallback | `coverart ~/Music --no-fallback-dirnames` |
+| Export misses and processing failures | `coverart ~/Music --missing-csv missing.csv` |
+| Generate a report after processing | `coverart ~/Music --report-html report.html` |
+| Generate a report without fetching | `coverart ~/Music --report-only --report-html report.html` |
+| Omit report thumbnails | `coverart ~/Music --report-only --report-html report.html --no-thumbs` |
+| Process albums serially | `coverart ~/Music --workers 1` |
 
-Use `--workers 1` for deterministic serial processing or when a provider is
-rate-limiting heavily. MusicBrainz requests are always rate-limited internally.
+`--min-bytes` applies to embedded artwork and sidecars. Byte size is an upgrade
+heuristic, not a resolution or visual-quality score. Larger existing artwork is
+kept by default; `--replace-smaller` disables that protection, allowing a
+below-threshold cover to be replaced even by a smaller downloaded image.
 
-## Programmatic use
+Four workers run by default. MusicBrainz requests are rate-limited internally.
+Use `-v` for progress, `-vv` for debugging, and `coverart --help` for all options.
+
+## HTML report
+
+The self-contained HTML report includes album search, source filters, coverage
+statistics, and light/dark themes. Viewing it requires no server. Thumbnails come
+from local sidecars and have a shared size budget; embedded-only albums can have
+coverage without a thumbnail.
+
+Report coverage means an album has **a usable sidecar or artwork embedded in every
+supported track**. This is broader than the default processing completion check,
+which requires both. Reports contain library names, relative album paths, and
+optional artwork, so review their contents before sharing them.
+
+## Configuration
+
+Store defaults in `~/.config/coverart-cli/config.toml` (or under
+`$XDG_CONFIG_HOME/coverart-cli/config.toml`):
+
+```toml
+workers = 4
+min_bytes = 30000
+no_embed = false
+no_sidecar = false
+no_musicbrainz = false
+# Optional: identify yourself when contacting MusicBrainz.
+user_agent = "coverart-cli (mailto:you@example.com)"
+```
+
+Configuration is merged in this order; later values win:
+
+```text
+Built-in defaults → user config → ./coverart.toml → --config PATH
+                  → LASTFM_API_KEY (key only) → explicit CLI flags
+```
+
+Keys match CLI option names with underscores: `no_embed`, `min_bytes`,
+`report_html`, and so on. Unknown keys and invalid values are ignored with a
+warning. Keep API keys out of committed project configuration.
+
+Explicit flags override configured values even when equal to the built-in
+default. Use `--embed`, `--sidecar`, `--no-dry-run`, `--no-report-html`, or
+`--no-missing-csv` to clear the corresponding configured action.
+
+## Providers and formats
+
+Providers are tried in the following order; Last.fm is skipped without a key.
+
+| Provider | API key | Disable with |
+| --- | --- | --- |
+| [Last.fm](https://www.last.fm/api) | Required | `--no-lastfm` |
+| [iTunes Search](https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/iTuneSearchAPI/) | None | `--no-itunes` |
+| [Deezer](https://developers.deezer.com/api) | None | `--no-deezer` |
+| [MusicBrainz](https://musicbrainz.org/doc/Cover_Art_Archive) / Cover Art Archive | None | `--no-musicbrainz` |
+
+| Audio formats | Embedded artwork |
+| --- | --- |
+| MP3 | ID3 APIC |
+| M4A, M4B, MP4 | `covr` atom |
+| FLAC | Picture block |
+| Ogg Vorbis, Opus | `metadata_block_picture` |
+
+Recognized local sidecars are `cover.jpg`, `cover.png`, `folder.jpg`, and
+`folder.png`. Artwork is validated as JPEG or PNG before use: at most 20 MiB,
+4,096 pixels per dimension, and 16,777,216 total pixels. The normal minimum
+usable cover size is 2,000 bytes. Sidecar output follows the validated image
+format (`cover.jpg` or `cover.png`).
+
+## File safety and privacy
+
+Album and artist names are sent to enabled providers over HTTPS. Provider
+downloads and redirects are restricted to their permitted API/image hosts.
+Report-only mode makes no provider requests.
+
+Library traversal skips hidden entries and does not follow symbolic links to
+album folders, tracks, or covers. Tag writes use verified file identities and
+copy-on-write replacement. Keep a backup before bulk metadata changes and avoid
+moving or renaming the library while a run is writing: a POSIX directory rename
+does not revoke an already-open descriptor.
+
+Read [SECURITY.md](SECURITY.md) for trust boundaries and vulnerability reporting.
+
+## Automation and Python API
+
+CLI exit codes are `0` for a completed run (ordinary cover misses are allowed),
+`1` for processing or I/O errors, and `2` for invalid options or unsupported
+platform capabilities. Use `--missing-csv` to assess missing artwork separately.
 
 ```python
 from pathlib import Path
 from coverart_cli.core import RunOptions, run
-from coverart_cli.providers import ITunesProvider, DeezerProvider
+from coverart_cli.providers import DeezerProvider, ITunesProvider
 
 stats = run(
     RunOptions(
-        root=Path("~/Music").expanduser(),
+        root=Path.home() / "Music",
         providers=[ITunesProvider(), DeezerProvider()],
+        dry_run=True,
     )
 )
-print(stats.fetched_from, stats.not_found)
+print(stats.fetched_from, stats.not_found, stats.errors)
 ```
-
-## Alternatives
-
-| Tool                                                      | When to pick it                                                  |
-| --------------------------------------------------------- | ---------------------------------------------------------------- |
-| [sacad](https://github.com/desbma/sacad)                  | Best match rate; Rust binary, more sources                       |
-| [get-cover-art](https://github.com/regosen/get_cover_art) | Battle-tested Python API                                         |
-| [beets](https://beets.io/) `fetchart`                     | Already using beets for everything else                          |
-| `coverart-cli` (this)                                     | You want an HTML report plus embed/sidecar dual output            |
 
 ## Development
 
+Use the checked-in hash locks and the same editable-install approach as CI:
+
 ```bash
-git clone https://github.com/buettgen-app/coverart-cli && cd coverart-cli
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-ruff check . && pyrefly check && pytest
+git clone https://github.com/buettgen-app/coverart-cli.git
+cd coverart-cli
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --require-hashes -r requirements-ci.txt
+python -m pip install --no-deps --no-build-isolation -e .
+
+ruff check .
+ruff format --check .
+pyrefly check
+pytest --cov=coverart_cli --cov-report=term-missing --cov-fail-under=78
 ```
 
-## Releases
+Install FFmpeg to enable the audio-stream preservation oracle used in CI.
+The Linux test matrix covers Python 3.11–3.14; additional jobs check macOS
+metadata preservation and rejection of unsupported Windows operations.
+CodeQL, Zizmor, dependency review, fuzzing, and reproducible artifact builds
+provide separate checks.
 
-Releases are prepared by [release-please](https://github.com/googleapis/release-please-action)
-and published from an immutable Git tag via PyPI Trusted Publishing.
-Commits to `main` follow [Conventional Commits](https://www.conventionalcommits.org/):
-
-| Commit prefix                   | Effect on next release     |
-| ------------------------------- | -------------------------- |
-| `feat: …`                       | minor bump (0.3.0 → 0.4.0) |
-| `fix: …`                        | patch bump (0.3.0 → 0.3.1) |
-| `feat!: …` / `BREAKING CHANGE:` | minor before 1.0; major from 1.0 |
-| `perf:`, `docs:`, `refactor:` | patch bump (0.3.0 → 0.3.1) |
-| `chore:`, `ci:`, `test:`        | hidden in changelog        |
-
-The `Prepare release` workflow uses the repository-scoped `GITHUB_TOKEN` to
-open and update one rolling Release PR. Merging that PR creates a mutable draft
-release and sends an authenticated repository dispatch to the isolated
-`Publish release` workflow. That workflow verifies the source run, exact
-commit, package metadata, changelog, and draft state before it creates a
-protected annotated version tag and publishes an immutable GitHub Release. It
-builds one wheel and source distribution, attaches those exact files to the
-release, publishes them to PyPI with OIDC attestations, and cryptographically
-verifies the exact local artifacts against PyPI's recorded provenance.
-
-The normal release writes use only the repository-scoped `GITHUB_TOKEN`.
-Configure `RELEASE_SETTINGS_TOKEN` as a fine-grained token limited to this
-repository with **Administration: read**; it is used only to verify, immediately
-before publication, that GitHub Immutable Releases remain enabled. In
-`Settings → Actions → General → Workflow permissions`, enable **Allow GitHub
-Actions to create and approve pull requests**. GitHub may hold checks on a
-Release Please PR until a maintainer selects **Approve workflows to run**.
-
-The PyPI Trusted Publisher must be configured for GitHub owner `buettgen-app`,
-repository `coverart-cli`, workflow `release.yml`, and environment `pypi`.
-Enable GitHub Immutable Releases for the repository. The active
-`refs/tags/v*` ruleset must block tag updates, deletion, and non-fast-forward
-changes without bypass actors; publication fails closed if either repository
-protection is missing or weakened. That filename is the stable
-publish identity even though Release Please itself runs in
-`prepare-release.yml`. Do not create release tags or upload distributions by
-hand. A failed publish can be retried without introducing a second release
-path: the workflow accepts only the exact mutable draft or immutable release,
-rebuilds wheel and sdist deterministically from the bound source and requires
-their SHA-256 values to match any immutable GitHub assets, uploads only missing
-PyPI files, and verifies provenance. The same workflow can be run manually
-from `main` for a named draft or a published version that already satisfies
-the protected annotated-tag contract; recovery refuses product changes beyond
-the explicit release repair. Pull requests and Release PRs
-remain subject to branch protection and their configured merge gates.
-GitHub Actions changes are gated by the repository's Zizmor security lint;
-third-party AI review remains advisory so availability limits cannot block
-security updates.
+Report bugs or request features in [GitHub Issues](https://github.com/buettgen-app/coverart-cli/issues).
+For releases, protected tags, PyPI Trusted Publishing, and recovery procedures,
+see the [release and publishing guide](docs/releases.md).
 
 ## License
 
