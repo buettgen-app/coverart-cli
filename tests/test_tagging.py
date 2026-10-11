@@ -61,6 +61,12 @@ def test_find_sidecar_present(tmp_path: Path) -> None:
     assert find_sidecar(tmp_path) == cover
 
 
+def test_find_sidecar_accepts_exact_minimum(tmp_path: Path) -> None:
+    cover = tmp_path / "cover.jpg"
+    cover.write_bytes(VALID_JPEG)
+    assert find_sidecar(tmp_path, min_bytes=len(VALID_JPEG)) == cover
+
+
 def test_find_sidecar_rejects_invalid_image(tmp_path: Path) -> None:
     cover = tmp_path / "cover.jpg"
     cover.write_bytes(b"<!doctype html>" + b"x" * 3000)

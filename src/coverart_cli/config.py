@@ -5,8 +5,8 @@ Resolution order (later wins):
   2. ~/.config/coverart-cli/config.toml  (XDG: $XDG_CONFIG_HOME or ~/.config)
   3. ./coverart.toml                     (working directory)
   4. --config PATH (explicit)
-  5. Command-line flags
-  6. Environment variables  (e.g. LASTFM_API_KEY)
+  5. Environment variables  (e.g. LASTFM_API_KEY)
+  6. Command-line flags
 
 Example file (all keys optional):
 
