@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})")
-HOME_PATH = re.compile(r"(?:/(?:Users|home)/|[A-Za-z]:\\Users\\)([A-Za-z0-9_.-]+)")
+HOME_PATH = re.compile(r"(?:/(?:Users|home)/|(?i:[A-Za-z]:\\Users\\))([A-Za-z0-9_.-]+)")
 EXAMPLE_DOMAINS = {"example.com", "example.net", "example.org", "example.invalid"}
 PUBLIC_IDENTITY_DOMAINS = {"users.noreply.github.com", "noreply.github.com"}
 GENERATED_DIRS = {
@@ -20,6 +20,10 @@ GENERATED_DIRS = {
     ".ruff_cache",
     ".mypy_cache",
     ".venv",
+    "venv",
+    "env",
+    "ENV",
+    ".tox",
     "htmlcov",
     "build",
     "dist",
@@ -67,18 +71,24 @@ def check_file(path: Path, data: bytes) -> list[str]:
 
 
 def main() -> int:
-    paths = subprocess.check_output(["git", "ls-files", "-z"]).split(b"\0")
+    entries = subprocess.check_output(["git", "ls-files", "--stage", "-z"]).split(b"\0")
     findings = []
     count = 0
-    for raw_path in paths:
-        if not raw_path:
+    for entry in entries:
+        if not entry:
             continue
+        metadata, raw_path = entry.split(b"\t", 1)
+        mode, object_id, stage = metadata.split()
         path = Path(raw_path.decode("utf-8"))
-        if path.is_symlink():
-            findings.append(f"{path}: tracked symlink requires manual review")
+        if stage != b"0":
+            findings.append(f"{path}: unresolved index entry")
+            continue
+        if mode not in {b"100644", b"100755"}:
+            findings.append(f"{path}: tracked symlink or submodule requires manual review")
             continue
         count += 1
-        findings.extend(check_file(path, path.read_bytes()))
+        data = subprocess.check_output(["git", "cat-file", "blob", object_id.decode("ascii")])
+        findings.extend(check_file(path, data))
     if findings:
         print("\n".join(findings))
         return 1

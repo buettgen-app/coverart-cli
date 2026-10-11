@@ -7,8 +7,10 @@ not belong in Git. Release and publishing instructions are in [releases.md](rele
 
 ## Privacy checks
 
-Run `python scripts/check_repository.py` before committing. It checks tracked
-files for non-example email addresses, personal Unix/Windows home paths,
+Run `python scripts/check_repository.py` after staging and before committing. It
+reads Git index blobs, so it checks the snapshot that will actually be committed,
+even when the working copy differs or an indexed file has been locally deleted.
+It checks for non-example email addresses, personal Unix/Windows home paths,
 generated artifacts, environment files, symlinks and textual/EXIF PNG metadata.
 Diagnostics include locations and categories, never matched personal values.
 Examples use RFC-reserved example domains and the fictional `example-user` path.
