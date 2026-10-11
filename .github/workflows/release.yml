@@ -33,10 +33,10 @@ env:
       then .[0].sha else error("publisher is not a regular Git file") end
     end
   NON_PUBLICATION_WORKFLOWS_JQ: >-
-    if ([.[] | select(.name == "release.yml" and .type == "file")] | length) != 1 then
-      error("publisher workflow is missing or not a regular file")
-    else
-      map(select(.name != "release.yml")) | sort_by(.name) | map({name, sha, type})
+    if .truncated != false then error("incomplete Git tree") else
+      [.tree[] | select(.path | startswith(".github/workflows/")) |
+       select(.path != ".github/workflows/release.yml")] |
+      sort_by(.path) | map({path, sha, type, mode})
     end
   RELEASE_COMMIT_JQ: >-
     [.[][] | select(.merged_at != null and
@@ -667,28 +667,15 @@ jobs:
               echo "::error::Publisher execution commit is not a full SHA."
               return 1
             fi
-            expected_workflows="$(
-              gh api --method GET \
-                "repos/$GITHUB_REPOSITORY/contents/.github/workflows" \
-                -f ref="$EXPECTED_RELEASE_SHA" \
-                --jq "$NON_PUBLICATION_WORKFLOWS_JQ"
-            )"
-            current_workflows="$(
-              gh api --method GET \
-                "repos/$GITHUB_REPOSITORY/contents/.github/workflows" \
-                -f ref="$current_main" \
-                --jq "$NON_PUBLICATION_WORKFLOWS_JQ"
-            )"
-            running_publisher="$(
-              gh api --method GET \
-                "repos/$GITHUB_REPOSITORY/git/trees/$PUBLICATION_WORKFLOW_SHA?recursive=1" \
-                --jq "$REGULAR_PUBLISHER_JQ"
-            )"
-            current_publisher="$(
-              gh api --method GET \
-                "repos/$GITHUB_REPOSITORY/git/trees/$current_main?recursive=1" \
-                --jq "$REGULAR_PUBLISHER_JQ"
-            )"
+            source_tree="$(gh api "repos/$GITHUB_REPOSITORY/git/trees/$EXPECTED_RELEASE_SHA?recursive=1")"
+            main_tree="$(gh api "repos/$GITHUB_REPOSITORY/git/trees/$current_main?recursive=1")"
+            running_tree="$(gh api "repos/$GITHUB_REPOSITORY/git/trees/$PUBLICATION_WORKFLOW_SHA?recursive=1")"
+            # Git metadata proves file mode; the Contents API follows symlinks.
+            jq -er "$REGULAR_PUBLISHER_JQ" <<<"$source_tree" >/dev/null
+            expected_workflows="$(jq -c "$NON_PUBLICATION_WORKFLOWS_JQ" <<<"$source_tree")"
+            current_workflows="$(jq -c "$NON_PUBLICATION_WORKFLOWS_JQ" <<<"$main_tree")"
+            running_publisher="$(jq -er "$REGULAR_PUBLISHER_JQ" <<<"$running_tree")"
+            current_publisher="$(jq -er "$REGULAR_PUBLISHER_JQ" <<<"$main_tree")"
             if [ "$running_publisher" != "$current_publisher" ]; then
               echo "::error::Publisher changed on main after this workflow started."
               return 1
@@ -829,28 +816,15 @@ jobs:
               echo "::error::Publisher execution commit is not a full SHA."
               return 1
             fi
-            expected_workflows="$(
-              gh api --method GET \
-                "repos/$GITHUB_REPOSITORY/contents/.github/workflows" \
-                -f ref="$EXPECTED_RELEASE_SHA" \
-                --jq "$NON_PUBLICATION_WORKFLOWS_JQ"
-            )"
-            current_workflows="$(
-              gh api --method GET \
-                "repos/$GITHUB_REPOSITORY/contents/.github/workflows" \
-                -f ref="$current_main" \
-                --jq "$NON_PUBLICATION_WORKFLOWS_JQ"
-            )"
-            running_publisher="$(
-              gh api --method GET \
-                "repos/$GITHUB_REPOSITORY/git/trees/$PUBLICATION_WORKFLOW_SHA?recursive=1" \
-                --jq "$REGULAR_PUBLISHER_JQ"
-            )"
-            current_publisher="$(
-              gh api --method GET \
-                "repos/$GITHUB_REPOSITORY/git/trees/$current_main?recursive=1" \
-                --jq "$REGULAR_PUBLISHER_JQ"
-            )"
+            source_tree="$(gh api "repos/$GITHUB_REPOSITORY/git/trees/$EXPECTED_RELEASE_SHA?recursive=1")"
+            main_tree="$(gh api "repos/$GITHUB_REPOSITORY/git/trees/$current_main?recursive=1")"
+            running_tree="$(gh api "repos/$GITHUB_REPOSITORY/git/trees/$PUBLICATION_WORKFLOW_SHA?recursive=1")"
+            # Git metadata proves file mode; the Contents API follows symlinks.
+            jq -er "$REGULAR_PUBLISHER_JQ" <<<"$source_tree" >/dev/null
+            expected_workflows="$(jq -c "$NON_PUBLICATION_WORKFLOWS_JQ" <<<"$source_tree")"
+            current_workflows="$(jq -c "$NON_PUBLICATION_WORKFLOWS_JQ" <<<"$main_tree")"
+            running_publisher="$(jq -er "$REGULAR_PUBLISHER_JQ" <<<"$running_tree")"
+            current_publisher="$(jq -er "$REGULAR_PUBLISHER_JQ" <<<"$main_tree")"
             if [ "$running_publisher" != "$current_publisher" ]; then
               echo "::error::Publisher changed on main after this workflow started."
               return 1
