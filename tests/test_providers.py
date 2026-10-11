@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import urllib.error
 import urllib.request
@@ -44,6 +45,43 @@ class FakeResponse:
         chunk = self.payload[self.offset : self.offset + size]
         self.offset += len(chunk)
         return chunk
+
+
+@pytest.mark.parametrize("status", [404, 403, 429, 503])
+def test_http_error_response_closed_before_return_or_retry(status, monkeypatch) -> None:
+    bodies = []
+
+    class ErrorOpener:
+        def open(self, request, timeout):
+            body = io.BytesIO(b"error response")
+            bodies.append(body)
+            raise urllib.error.HTTPError(request.full_url, status, "error", Message(), body)
+
+    def sleep(_delay):
+        assert all(body.closed for body in bodies)
+
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *handlers: ErrorOpener())
+    monkeypatch.setattr("coverart_cli.providers.base.time.sleep", sleep)
+    if status == 404:
+        assert DummyProvider()._http_get("https://example.com/cover.jpg", retries=1) is None
+    else:
+        with pytest.raises(ProviderUnavailable):
+            DummyProvider()._http_get("https://example.com/cover.jpg", retries=1)
+    assert bodies and all(body.closed for body in bodies)
+
+
+def test_network_error_log_does_not_leak_query_credentials(monkeypatch, caplog) -> None:
+    url = "https://example.com/cover.jpg?api_key=synthetic-secret"
+
+    class ErrorOpener:
+        def open(self, request, timeout):
+            raise urllib.error.URLError(f"failed request {request.full_url}")
+
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *handlers: ErrorOpener())
+    with caplog.at_level("DEBUG"), pytest.raises(ProviderUnavailable):
+        DummyProvider()._http_get(url, retries=0)
+    assert "synthetic-secret" not in caplog.text
+    assert "api_key" not in caplog.text
 
 
 def test_lastfm_requires_key() -> None:

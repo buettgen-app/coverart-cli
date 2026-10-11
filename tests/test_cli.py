@@ -174,6 +174,15 @@ def test_unsupported_platform_can_use_embed_only(
     assert main([str(tmp_path), "--no-sidecar"]) == 0
 
 
+def test_report_only_does_not_require_sidecar_write_capability(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("coverart_cli.cli.supports_secure_sidecar_writes", lambda: False)
+    output = tmp_path / "report.html"
+    monkeypatch.setattr("coverart_cli.report.write_report", lambda *a, **kw: (output, 0))
+    assert main([str(tmp_path), "--report-only", "--report-html", str(output)]) == 0
+
+
 def test_rejects_unsupported_library_traversal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

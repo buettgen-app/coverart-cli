@@ -165,6 +165,37 @@ def test_scan_library_missing_cover(tmp_path: Path) -> None:
     assert entries[0].cover_data_uri is None
 
 
+def test_root_report_does_not_use_private_parent_name(tmp_path: Path) -> None:
+    root = tmp_path / "example-user" / "Music"
+    root.mkdir(parents=True)
+    (root / "01.mp3").write_bytes(b"untagged")
+    entry = scan_library(root, embed_thumbs=False)[0]
+    assert entry.artist == "Unknown Artist"
+    assert "example-user" not in build_report([entry], library_path=str(root))
+
+
+def test_root_report_uses_verified_tag_identity(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "01.mp3").write_bytes(b"audio fixture")
+    monkeypatch.setattr(
+        "coverart_cli.core.read_album_meta",
+        lambda *a, **kw: tagging.AlbumMeta("Tagged Artist", "Tagged Album"),
+    )
+    entry = scan_library(tmp_path, embed_thumbs=False)[0]
+    assert (entry.artist, entry.album) == ("Tagged Artist", "Tagged Album")
+
+
+def test_report_ignores_hidden_tracks_in_count_and_coverage(tmp_path: Path) -> None:
+    album = tmp_path / "Artist" / "Album"
+    album.mkdir(parents=True)
+    tags = ID3()
+    tags.add(APIC(encoding=3, mime="image/jpeg", type=3, desc="Cover", data=VALID_JPEG))
+    tags.save(album / "01.mp3")
+    (album / ".hidden.mp3").write_bytes(b"uncovered")
+    entry = scan_library(tmp_path, embed_thumbs=False)[0]
+    assert entry.file_count == 1
+    assert entry.has_cover
+
+
 def test_scan_library_requires_every_track_to_have_embedded_cover(tmp_path: Path) -> None:
     album = tmp_path / "Some Artist" / "Some Album"
     album.mkdir(parents=True)

@@ -4,7 +4,24 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from coverart_cli.config import ALLOWED_KEYS, load_config
+
+
+@pytest.fixture(autouse=True)
+def isolate_default_config(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+
+@pytest.mark.parametrize("xdg", ["relative-config", ""])
+def test_default_config_ignores_nonabsolute_xdg(xdg, tmp_path, monkeypatch) -> None:
+    from coverart_cli.config import default_config_paths
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", xdg)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    assert default_config_paths()[0] == tmp_path / ".config" / "coverart-cli" / "config.toml"
 
 
 def test_load_config_empty(tmp_path: Path) -> None:

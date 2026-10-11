@@ -10,6 +10,9 @@ Renovate uses its `pip-compile` manager for all four `requirements-*.txt` hash
 locks. Their generated headers provide the original `uv pip compile` commands
 and source files, including `pyproject.toml`; standalone Python managers are
 excluded to avoid duplicate updates. The uv constraint matches CI's version.
+Options with values use `--option=value` in both CI and generated headers,
+as required by Renovate's command parser. Schema validation alone cannot verify
+this: an extraction dry run must also recognize all four lock files.
 Python non-major updates are grouped so shared sources and locks stay together.
 GitHub Actions and pre-commit hooks have separate non-major groups; major
 updates require individual review. CI checks that every lock is canonical.

@@ -265,7 +265,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    if not args.no_sidecar and not args.dry_run and not supports_secure_sidecar_writes():
+    if (
+        not args.report_only
+        and not args.no_sidecar
+        and not args.dry_run
+        and not supports_secure_sidecar_writes()
+    ):
         print(
             "error: secure sidecar writes are unsupported on this platform; "
             "use --no-sidecar to embed artwork without sidecar files",
