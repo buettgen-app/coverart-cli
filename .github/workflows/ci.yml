@@ -10,6 +10,20 @@ permissions:
   contents: read
 
 jobs:
+  repository-hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Check tracked files for PII and generated artifacts
+        run: python scripts/check_repository.py
+
   test:
     name: test (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -166,7 +180,7 @@ jobs:
           test -s /tmp/report.html && echo "✓ report written ($(wc -c </tmp/report.html) bytes)"
 
   attestation-lock:
-    name: Attestation verifier lock
+    name: Dependency lock consistency
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -183,7 +197,10 @@ jobs:
       - name: Verify canonical hash lock
         run: |
           uv pip compile requirements-attestation.in --universal --generate-hashes --output-file requirements-attestation.txt
-          git diff --exit-code -- requirements-attestation.txt
+          uv pip compile pyproject.toml --extra dev requirements-build-backend.in --universal --generate-hashes --output-file requirements-ci.txt
+          uv pip compile requirements-build.in --universal --generate-hashes --output-file requirements-build.txt
+          uv pip compile requirements-fuzz.in --universal --generate-hashes --output-file requirements-fuzz.txt
+          git diff --exit-code -- requirements-attestation.txt requirements-ci.txt requirements-build.txt requirements-fuzz.txt
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -231,4 +248,35 @@ jobs:
           second = manifest("/tmp/repro-two")
           if len(first) != 2 or first != second:
               raise SystemExit("wheel and sdist builds are not reproducible")
+          PY
+
+  gate:
+    name: CI gate
+    if: always()
+    needs:
+      - repository-hygiene
+      - test
+      - windows-smoke
+      - macos-metadata
+      - smoke
+      - attestation-lock
+      - reproducible-artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every CI job to succeed
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          results = json.loads(os.environ["JOB_RESULTS"])
+          failed = [name for name, job in results.items() if job["result"] != "success"]
+          if failed:
+              print("Required CI jobs did not succeed: " + ", ".join(failed))
+              sys.exit(1)
+          print("All required CI jobs succeeded.")
           PY
