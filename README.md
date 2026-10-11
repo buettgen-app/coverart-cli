@@ -241,6 +241,10 @@ metadata preservation and rejection of unsupported Windows operations.
 CodeQL, Zizmor, dependency review, fuzzing, and reproducible artifact builds
 provide separate checks.
 
+Run `python scripts/check_repository.py` to check tracked files for private
+contact details and local artifacts. See [repository hygiene and CI gates](docs/repository-checks.md)
+for privacy-check limits and the required-check configuration.
+
 Report bugs or request features in [GitHub Issues](https://github.com/buettgen-app/coverart-cli/issues).
 For releases, protected tags, PyPI Trusted Publishing, and recovery procedures,
 see the [release and publishing guide](docs/releases.md).

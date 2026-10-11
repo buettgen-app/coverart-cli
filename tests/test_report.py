@@ -271,14 +271,14 @@ def test_build_report_substitutes_data(tmp_path: Path) -> None:
 
 
 def test_build_report_strips_home_path_from_library_label() -> None:
-    html = build_report([], library_path="/Users/alice/Music")
-    assert "/Users/alice" not in html
+    html = build_report([], library_path="/Users/example-user/Music")
+    assert "/Users/example-user" not in html
     assert '"library_label": "Music"' in html
 
 
 def test_build_report_strips_windows_path_from_library_label() -> None:
-    html = build_report([], library_path=r"C:\Users\alice\Music")
-    assert r"C:\Users\alice" not in html
+    html = build_report([], library_path=r"C:\Users\example-user\Music")
+    assert r"C:\Users\example-user" not in html
     assert '"library_label": "Music"' in html
 
 

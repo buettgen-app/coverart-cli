@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a demo HTML report with public-domain example data — used for screenshots."""
+"""Generate a demo HTML report with well-known album examples — used for screenshots."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def fetch_itunes(artist: str, album: str) -> str | None:
         return None
 
 
-# Famous public-domain-ish example albums (real artists, well known)
+# Synthetic demo rows using well-known album names; artwork is fetched from iTunes.
 DEMO_ALBUMS = [
     ("Pink Floyd", "The Dark Side of the Moon", "lastfm", 10),
     ("Daft Punk", "Random Access Memories", "itunes", 13),

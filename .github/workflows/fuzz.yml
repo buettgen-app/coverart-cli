@@ -3,11 +3,6 @@ name: Fuzz
 on:
   pull_request:
     branches: [main]
-    paths:
-      - "src/**"
-      - "fuzz/**"
-      - "requirements-fuzz.txt"
-      - ".github/workflows/fuzz.yml"
   push:
     branches: [main]
     paths:

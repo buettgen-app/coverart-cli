@@ -28,6 +28,18 @@ Only the latest minor release is supported with fixes.
 Runtime dependencies are `mutagen` for audio metadata and Pillow for bounded
 JPEG/PNG decoding. Build, CI, fuzzing, and attestation tools use hash-locked
 requirements files. Dependency vulnerabilities are tracked via GitHub's Dependabot.
+CI regenerates every build, development, fuzzing and attestation lock with the
+pinned uv version and fails if the checked-in files differ.
+
+## Repository privacy
+
+Tracked files are checked for non-example contact addresses, personal home paths,
+local artifacts and screenshot metadata. Secret scanning uses fully redacted
+Gitleaks output for PR commits and reachable Git history. These are focused
+regression checks; they do not certify that arbitrary content contains no PII.
+See [repository hygiene and CI gates](docs/repository-checks.md) for coverage,
+synthetic examples, and the distinction between file content and historical
+Git author/committer identities.
 
 ## Supply chain controls
 

@@ -38,6 +38,8 @@ Thumbs.db
 # Local
 *.local
 .env
+.env.*
+!.env.example
 .envrc
 
 # Project output

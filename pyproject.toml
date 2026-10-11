@@ -74,6 +74,7 @@ testpaths = ["tests"]
 addopts = "-v --tb=short --cov-branch"
 
 [tool.pyrefly]
+search-path = ["."]
 project-includes = [
     "**/*.py*",
     "**/*.ipynb",
