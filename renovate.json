@@ -1,0 +1,41 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":dependencyDashboard"],
+  "timezone": "Europe/Berlin",
+  "schedule": ["before 6am on monday"],
+  "minimumReleaseAge": "7 days",
+  "prConcurrentLimit": 3,
+  "prHourlyLimit": 2,
+  "automerge": false,
+  "enabledManagers": ["github-actions", "pip-compile", "pre-commit"],
+  "pip-compile": {
+    "managerFilePatterns": ["/^requirements-(attestation|ci|build|fuzz)\\.txt$/"]
+  },
+  "pre-commit": { "enabled": true },
+  "constraints": { "uv": "==0.12.7" },
+  "lockFileMaintenance": { "enabled": true },
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "schedule": ["at any time"],
+    "minimumReleaseAge": "0 days"
+  },
+  "packageRules": [
+    {
+      "description": "Keep Python sources and their shared hash locks together",
+      "matchManagers": ["pip-compile"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "Python non-major dependencies"
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "pinDigests": true,
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "GitHub Actions non-major dependencies"
+    },
+    {
+      "matchManagers": ["pre-commit"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "Pre-commit non-major dependencies"
+    }
+  ]
+}
