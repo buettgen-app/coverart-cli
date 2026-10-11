@@ -129,3 +129,20 @@ jobs:
             '{ref: "main", inputs: {tag: $tag, source_sha: $sha}}' |
             gh api --method POST \
               "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/dispatches" --input -
+
+  complete-release:
+    name: Dispatch protected release completion
+    needs: release-please
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      needs.release-please.outputs.pending != 'true' && inputs.publish_only != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Explicitly start verified release completion on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run automatic-release.yml --repo buettgen-app/coverart-cli --ref main

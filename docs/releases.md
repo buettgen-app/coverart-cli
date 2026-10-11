@@ -17,7 +17,8 @@ Commits to `main` follow [Conventional Commits](https://www.conventionalcommits.
 
 A push to `main` starts the complete automatic release sequence. The
 `Prepare release` workflow uses the repository-scoped `GITHUB_TOKEN` to open
-or update one rolling Release PR. `Complete automatic release` then checks
+or update one rolling Release PR and explicitly dispatches
+`Complete automatic release` from main. The completion workflow then checks
 that it belongs to Release Please, is based on current `main`, and changes
 only the four release metadata files. It accepts only a consistent version
 increase; dependencies, build configuration and Python code must be unchanged.
