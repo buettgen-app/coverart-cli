@@ -24,6 +24,14 @@ concurrency:
 
 env:
   PUBLICATION_WORKFLOW_SHA: ${{ github.workflow_sha }}
+  REGULAR_PUBLISHER_JQ: >-
+    if .truncated != false then error("incomplete Git tree") else
+      [.tree[] | select(.path == ".github/workflows/release.yml")] |
+      if length == 1 and .[0].type == "blob" and
+         (.[0].mode == "100644" or .[0].mode == "100755") and
+         (.[0].sha | type == "string" and test("^[0-9a-f]{40}$"))
+      then .[0].sha else error("publisher is not a regular Git file") end
+    end
   NON_PUBLICATION_WORKFLOWS_JQ: >-
     if ([.[] | select(.name == "release.yml" and .type == "file")] | length) != 1 then
       error("publisher workflow is missing or not a regular file")
@@ -659,9 +667,6 @@ jobs:
               echo "::error::Publisher execution commit is not a full SHA."
               return 1
             fi
-            if [ "$current_main" = "$EXPECTED_RELEASE_SHA" ] && [ "$current_main" = "$PUBLICATION_WORKFLOW_SHA" ]; then
-              return 0
-            fi
             expected_workflows="$(
               gh api --method GET \
                 "repos/$GITHUB_REPOSITORY/contents/.github/workflows" \
@@ -676,15 +681,13 @@ jobs:
             )"
             running_publisher="$(
               gh api --method GET \
-                "repos/$GITHUB_REPOSITORY/contents/.github/workflows/release.yml" \
-                -f ref="$PUBLICATION_WORKFLOW_SHA" \
-                --jq 'if .type == "file" and (.sha | type == "string" and test("^[0-9a-f]{40}$")) then .sha else error("publisher identity is invalid") end'
+                "repos/$GITHUB_REPOSITORY/git/trees/$PUBLICATION_WORKFLOW_SHA?recursive=1" \
+                --jq "$REGULAR_PUBLISHER_JQ"
             )"
             current_publisher="$(
               gh api --method GET \
-                "repos/$GITHUB_REPOSITORY/contents/.github/workflows/release.yml" \
-                -f ref="$current_main" \
-                --jq 'if .type == "file" and (.sha | type == "string" and test("^[0-9a-f]{40}$")) then .sha else error("publisher identity is invalid") end'
+                "repos/$GITHUB_REPOSITORY/git/trees/$current_main?recursive=1" \
+                --jq "$REGULAR_PUBLISHER_JQ"
             )"
             if [ "$running_publisher" != "$current_publisher" ]; then
               echo "::error::Publisher changed on main after this workflow started."
@@ -826,9 +829,6 @@ jobs:
               echo "::error::Publisher execution commit is not a full SHA."
               return 1
             fi
-            if [ "$current_main" = "$EXPECTED_RELEASE_SHA" ] && [ "$current_main" = "$PUBLICATION_WORKFLOW_SHA" ]; then
-              return 0
-            fi
             expected_workflows="$(
               gh api --method GET \
                 "repos/$GITHUB_REPOSITORY/contents/.github/workflows" \
@@ -843,15 +843,13 @@ jobs:
             )"
             running_publisher="$(
               gh api --method GET \
-                "repos/$GITHUB_REPOSITORY/contents/.github/workflows/release.yml" \
-                -f ref="$PUBLICATION_WORKFLOW_SHA" \
-                --jq 'if .type == "file" and (.sha | type == "string" and test("^[0-9a-f]{40}$")) then .sha else error("publisher identity is invalid") end'
+                "repos/$GITHUB_REPOSITORY/git/trees/$PUBLICATION_WORKFLOW_SHA?recursive=1" \
+                --jq "$REGULAR_PUBLISHER_JQ"
             )"
             current_publisher="$(
               gh api --method GET \
-                "repos/$GITHUB_REPOSITORY/contents/.github/workflows/release.yml" \
-                -f ref="$current_main" \
-                --jq 'if .type == "file" and (.sha | type == "string" and test("^[0-9a-f]{40}$")) then .sha else error("publisher identity is invalid") end'
+                "repos/$GITHUB_REPOSITORY/git/trees/$current_main?recursive=1" \
+                --jq "$REGULAR_PUBLISHER_JQ"
             )"
             if [ "$running_publisher" != "$current_publisher" ]; then
               echo "::error::Publisher changed on main after this workflow started."
