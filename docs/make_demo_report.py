@@ -72,6 +72,7 @@ def main() -> None:
         data_uri = None
         if has_cover:
             candidate = fetch_itunes(artist, album, provider)
+            has_cover = candidate is not None
             if candidate is not None and thumbnail_bytes + len(candidate) <= MAX_REPORT_THUMB_BYTES:
                 data_uri = candidate
                 thumbnail_bytes += len(candidate)
@@ -80,8 +81,8 @@ def main() -> None:
                 artist=artist,
                 album=album,
                 path=f"{artist}/{album}",
-                has_cover=bool(data_uri),
-                source=source if data_uri else "none",
+                has_cover=has_cover,
+                source=source if has_cover else "none",
                 file_count=file_count,
                 cover_data_uri=data_uri,
             )

@@ -51,6 +51,8 @@ def test_demo_reuses_provider_and_enforces_total_budget(tmp_path, monkeypatch) -
     monkeypatch.setattr(make_demo_report, "build_report", fake_build)
     make_demo_report.main()
     assert len(providers) > 1 and len({id(p) for p in providers}) == 1
+    assert all(e.has_cover and e.source != "none" for e in captured[:-2])
+    assert captured[1].cover_data_uri is None
     assert (
         sum(len(e.cover_data_uri or "") for e in captured)
         <= make_demo_report.MAX_REPORT_THUMB_BYTES
