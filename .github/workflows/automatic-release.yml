@@ -1,11 +1,6 @@
 name: Complete automatic release
 
 on:
-  # The privileged follow-up executes only protected main code, never PR code or artifacts.
-  workflow_run: # zizmor: ignore[dangerous-triggers]
-    workflows: [Prepare release]
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
 
 permissions: {}
@@ -18,10 +13,7 @@ jobs:
   complete:
     if: >-
       github.repository == 'buettgen-app/coverart-cli' && github.ref == 'refs/heads/main' &&
-      (github.event_name == 'workflow_dispatch' ||
-       (github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.name == 'Prepare release' &&
-        github.event.workflow_run.head_branch == 'main'))
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:

@@ -2012,8 +2012,17 @@ def test_publication_explicitly_dispatches_catchup_only_after_provenance():
     assert "always()" not in job
     assert "uses:" not in job
     automatic = (RELEASE_WORKFLOW.parent / "automatic-release.yml").read_text()
-    assert "workflows: [Prepare release]" in automatic
+    assert "workflow_dispatch:" in automatic
+    assert "workflow_run:" not in automatic
     assert "catch-up:" not in automatic
+    preparation = (RELEASE_WORKFLOW.parent / "prepare-release.yml").read_text()
+    completion = preparation.split("\n  complete-release:\n", 1)[1]
+    assert "needs: release-please" in completion
+    assert "inputs.publish_only != true" in completion
+    assert "needs.release-please.outputs.pending != 'true'" in completion
+    assert "gh workflow run automatic-release.yml" in completion
+    assert "actions: write" in completion
+    assert "contents: write" not in completion
     command = _step_run("Dispatch preparation after successful provenance verification")
     result = subprocess.run(
         ["bash", "-euo", "pipefail", "-c", 'gh() { printf "%s\\n" "$@"; };\n' + command],
