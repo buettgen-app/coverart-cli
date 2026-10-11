@@ -23,6 +23,13 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  PUBLICATION_WORKFLOW_SHA: ${{ github.workflow_sha }}
+  NON_PUBLICATION_WORKFLOWS_JQ: >-
+    if ([.[] | select(.name == "release.yml" and .type == "file")] | length) != 1 then
+      error("publisher workflow is missing or not a regular file")
+    else
+      map(select(.name != "release.yml")) | sort_by(.name) | map({name, sha, type})
+    end
   RELEASE_COMMIT_JQ: >-
     [.[][] | select(.merged_at != null and
       .merge_commit_sha == $sha and
@@ -648,23 +655,43 @@ jobs:
         run: |
           verify_workflow_identity() {
             local current_main="$1"
-            if [ "$current_main" = "$EXPECTED_RELEASE_SHA" ]; then
+            if [[ ! "$PUBLICATION_WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::Publisher execution commit is not a full SHA."
+              return 1
+            fi
+            if [ "$current_main" = "$EXPECTED_RELEASE_SHA" ] && [ "$current_main" = "$PUBLICATION_WORKFLOW_SHA" ]; then
               return 0
             fi
             expected_workflows="$(
               gh api --method GET \
                 "repos/$GITHUB_REPOSITORY/contents/.github/workflows" \
                 -f ref="$EXPECTED_RELEASE_SHA" \
-                --jq 'sort_by(.name) | map({name, sha, type})'
+                --jq "$NON_PUBLICATION_WORKFLOWS_JQ"
             )"
             current_workflows="$(
               gh api --method GET \
                 "repos/$GITHUB_REPOSITORY/contents/.github/workflows" \
                 -f ref="$current_main" \
-                --jq 'sort_by(.name) | map({name, sha, type})'
+                --jq "$NON_PUBLICATION_WORKFLOWS_JQ"
             )"
+            running_publisher="$(
+              gh api --method GET \
+                "repos/$GITHUB_REPOSITORY/contents/.github/workflows/release.yml" \
+                -f ref="$PUBLICATION_WORKFLOW_SHA" \
+                --jq 'if .type == "file" and (.sha | type == "string" and test("^[0-9a-f]{40}$")) then .sha else error("publisher identity is invalid") end'
+            )"
+            current_publisher="$(
+              gh api --method GET \
+                "repos/$GITHUB_REPOSITORY/contents/.github/workflows/release.yml" \
+                -f ref="$current_main" \
+                --jq 'if .type == "file" and (.sha | type == "string" and test("^[0-9a-f]{40}$")) then .sha else error("publisher identity is invalid") end'
+            )"
+            if [ "$running_publisher" != "$current_publisher" ]; then
+              echo "::error::Publisher changed on main after this workflow started."
+              return 1
+            fi
             if [ "$expected_workflows" != "$current_workflows" ]; then
-              echo "::error::Release source workflows differ from current main."
+              echo "::error::Non-publication workflows differ from current main."
               return 1
             fi
           }
@@ -795,23 +822,43 @@ jobs:
         run: |
           verify_workflow_identity() {
             local current_main="$1"
-            if [ "$current_main" = "$EXPECTED_RELEASE_SHA" ]; then
+            if [[ ! "$PUBLICATION_WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::Publisher execution commit is not a full SHA."
+              return 1
+            fi
+            if [ "$current_main" = "$EXPECTED_RELEASE_SHA" ] && [ "$current_main" = "$PUBLICATION_WORKFLOW_SHA" ]; then
               return 0
             fi
             expected_workflows="$(
               gh api --method GET \
                 "repos/$GITHUB_REPOSITORY/contents/.github/workflows" \
                 -f ref="$EXPECTED_RELEASE_SHA" \
-                --jq 'sort_by(.name) | map({name, sha, type})'
+                --jq "$NON_PUBLICATION_WORKFLOWS_JQ"
             )"
             current_workflows="$(
               gh api --method GET \
                 "repos/$GITHUB_REPOSITORY/contents/.github/workflows" \
                 -f ref="$current_main" \
-                --jq 'sort_by(.name) | map({name, sha, type})'
+                --jq "$NON_PUBLICATION_WORKFLOWS_JQ"
             )"
+            running_publisher="$(
+              gh api --method GET \
+                "repos/$GITHUB_REPOSITORY/contents/.github/workflows/release.yml" \
+                -f ref="$PUBLICATION_WORKFLOW_SHA" \
+                --jq 'if .type == "file" and (.sha | type == "string" and test("^[0-9a-f]{40}$")) then .sha else error("publisher identity is invalid") end'
+            )"
+            current_publisher="$(
+              gh api --method GET \
+                "repos/$GITHUB_REPOSITORY/contents/.github/workflows/release.yml" \
+                -f ref="$current_main" \
+                --jq 'if .type == "file" and (.sha | type == "string" and test("^[0-9a-f]{40}$")) then .sha else error("publisher identity is invalid") end'
+            )"
+            if [ "$running_publisher" != "$current_publisher" ]; then
+              echo "::error::Publisher changed on main after this workflow started."
+              return 1
+            fi
             if [ "$expected_workflows" != "$current_workflows" ]; then
-              echo "::error::Release source workflows differ from current main."
+              echo "::error::Non-publication workflows differ from current main."
               return 1
             fi
           }

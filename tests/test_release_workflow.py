@@ -205,6 +205,104 @@ def test_exact_draft_source_allows_only_the_trusted_publisher_repair(changed, ac
 
 
 @pytest.mark.parametrize(
+    "step",
+    [
+        "Bind mutable draft to exact verified source",
+        "Bind tag and publish exact verified draft release",
+    ],
+)
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        None,
+        "ci",
+        "publisher-moved",
+        "publisher-missing",
+        "publisher-symlink",
+        "same-source-publisher-moved",
+        "same-commit",
+        "missing-execution-context",
+    ],
+)
+def test_every_finalization_guard_allows_only_the_running_publisher_repair(step, mutation):
+    source, current, running = "a" * 40, "b" * 40, "c" * 40
+    if mutation == "same-source-publisher-moved":
+        source = current
+    elif mutation == "same-commit":
+        source = current = running
+    elif mutation == "missing-execution-context":
+        running = ""
+    previous = [
+        {"name": "release.yml", "type": "file", "sha": "d" * 40},
+        {"name": "ci.yml", "type": "file", "sha": "e" * 40},
+    ]
+    latest = [
+        {"name": "release.yml", "type": "file", "sha": "f" * 40},
+        {"name": "ci.yml", "type": "file", "sha": "e" * 40},
+    ]
+    if mutation == "ci":
+        latest[1]["sha"] = "1" * 40
+    elif mutation == "publisher-missing":
+        latest.pop(0)
+    elif mutation == "publisher-symlink":
+        latest[0]["type"] = "symlink"
+    mock = """gh() {
+      local query="" ref="" path="" previous=""
+      for argument in "$@"; do
+        if [ "$previous" = "--jq" ]; then query="$argument"; fi
+        if [[ "$argument" == ref=* ]]; then ref="${argument#ref=}"; fi
+        if [[ "$argument" == repos/* ]]; then path="$argument"; fi
+        previous="$argument"
+      done
+      if [[ "$path" == */release.yml ]]; then
+        if [ "$ref" = "$PUBLICATION_WORKFLOW_SHA" ]; then
+          printf '%s' "$TEST_RUNNING_PUBLISHER" | jq -c "$query"
+        else
+          printf '%s' "$TEST_CURRENT_PUBLISHER" | jq -c "$query"
+        fi
+      elif [ "$ref" = "$EXPECTED_RELEASE_SHA" ]; then
+        printf '%s' "$TEST_PREVIOUS" | jq -c "$query"
+      else
+        printf '%s' "$TEST_LATEST" | jq -c "$query"
+      fi
+    }
+    """
+    helper = _shell_function(_step_run(step), "verify_workflow_identity")
+    result = subprocess.run(
+        [
+            "bash",
+            "-euo",
+            "pipefail",
+            "-c",
+            mock + helper + '\nverify_workflow_identity "$TEST_MAIN"',
+        ],
+        env={
+            **os.environ,
+            "GITHUB_REPOSITORY": "buettgen-app/coverart-cli",
+            "EXPECTED_RELEASE_SHA": source,
+            "TEST_MAIN": current,
+            "PUBLICATION_WORKFLOW_SHA": running,
+            "NON_PUBLICATION_WORKFLOWS_JQ": _folded_env_value("NON_PUBLICATION_WORKFLOWS_JQ"),
+            "TEST_PREVIOUS": json.dumps(previous),
+            "TEST_LATEST": json.dumps(latest),
+            "TEST_RUNNING_PUBLISHER": json.dumps({"type": "file", "sha": "f" * 40}),
+            "TEST_CURRENT_PUBLISHER": json.dumps(
+                {
+                    "type": "file",
+                    "sha": "2" * 40
+                    if mutation in {"publisher-moved", "same-source-publisher-moved"}
+                    else "f" * 40,
+                }
+            ),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) is (mutation in {None, "same-commit"})
+
+
+@pytest.mark.parametrize(
     "mutation",
     [
         None,
