@@ -114,6 +114,43 @@ def test_run_processes_selected_album_directory(tmp_path: Path) -> None:
     assert entries[0].artist == "Artist"
 
 
+@pytest.mark.parametrize("relative_root", [".", "Album"])
+def test_relative_root_uses_directory_metadata(tmp_path, monkeypatch, relative_root):
+    album = _make_album(tmp_path, "Artist", "Album", tracks=1)
+    for track in album.glob("*.mp3"):
+        ID3().save(track)
+    monkeypatch.chdir(album if relative_root == "." else album.parent)
+    provider = FakeProvider()
+    stats = run(RunOptions(root=Path(relative_root), providers=[provider]))
+    assert stats.errors == 0
+    assert provider.calls == [("Artist", "Album")]
+    entries = report.scan_library(Path(relative_root))
+    assert len(entries) == 1
+    assert (entries[0].artist, entries[0].album) == ("Artist", "Album")
+
+
+def test_mixed_root_albums_are_not_modified(tmp_path, monkeypatch):
+    root = tmp_path / "mixed"
+    root.mkdir()
+    for index, title in enumerate(["Album A", "Album B"]):
+        source = _make_album(tmp_path / "sources", "Artist", title, tracks=1)
+        (source / "01.mp3").rename(root / f"{index}.mp3")
+    before = {track: track.read_bytes() for track in root.glob("*.mp3")}
+
+    # These minimal MP3 fixtures contain ID3 tags but no decodable audio stream.
+    def read_fixture_meta(path, **_kwargs):
+        tags = ID3(path)
+        return tagging.AlbumMeta(artist=str(tags["TPE2"]), album=str(tags["TALB"]))
+
+    monkeypatch.setattr(core, "read_album_meta", read_fixture_meta)
+    provider = FakeProvider()
+    stats = run(RunOptions(root=root, providers=[provider]))
+    assert stats.errors == 1
+    assert provider.calls == []
+    assert not (root / "cover.jpg").exists()
+    assert {track: track.read_bytes() for track in root.glob("*.mp3")} == before
+
+
 def test_existing_sidecar_fills_missing_embeds_without_network(tmp_path: Path) -> None:
     album_dir = _make_album(tmp_path, "Pink Floyd", "The Wall")
     (album_dir / "cover.jpg").write_bytes(VALID_JPEG)

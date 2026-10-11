@@ -461,6 +461,18 @@ def test_lastfm_surfaces_explicit_error_payload(
         provider.fetch("Artist", "Album")
 
 
+@pytest.mark.parametrize("message", ["Invalid parameters", None, 6])
+def test_lastfm_error_six_requires_known_miss_message(message, monkeypatch):
+    provider = LastFmProvider("key")
+    monkeypatch.setattr(
+        provider,
+        "_http_get",
+        lambda _url, **_kwargs: json.dumps({"error": 6, "message": message}).encode(),
+    )
+    with pytest.raises(ProviderUnavailable, match="Last.fm API error 6"):
+        provider.fetch("Artist", "Album")
+
+
 @pytest.mark.parametrize("error_code", [6, "6"])
 def test_lastfm_album_not_found_is_a_miss(error_code, monkeypatch) -> None:
     provider = LastFmProvider("key")
