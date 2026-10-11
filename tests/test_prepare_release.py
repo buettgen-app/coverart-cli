@@ -67,10 +67,10 @@ class PrepareReleaseTests(unittest.TestCase):
             self.run_guard(
                 [
                     [{"tag_name": "v0.6.0", "draft": False}],
-                    [{"tag_name": "v0.6.2", "draft": True}],
+                    [{"tag_name": "v0.6.2", "draft": True, "target_commitish": "a" * 40}],
                 ]
             ),
-            (0, "pending=true\ntag=v0.6.2\n"),
+            (0, "pending=true\ntag=v0.6.2\nsha=" + "a" * 40 + "\n"),
         )
 
     def test_published_current_release_allows_next_pr(self) -> None:
@@ -90,7 +90,7 @@ class PrepareReleaseTests(unittest.TestCase):
 
     def test_ambiguous_or_malformed_state_stops(self) -> None:
         for matches in (
-            [{"tag_name": "v0.6.2", "draft": True}] * 2,
+            [{"tag_name": "v0.6.2", "draft": True, "target_commitish": "a" * 40}] * 2,
             [{"tag_name": "v0.6.2"}],
             [{"tag_name": "v0.6.2", "draft": "false"}],
         ):
@@ -109,6 +109,14 @@ class PrepareReleaseTests(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertEqual(output, "")
 
+    def test_invalid_pending_draft_source_stops_without_partial_outputs(self) -> None:
+        for sha in (None, "main", "invalid"):
+            code, output = self.run_guard(
+                [[{"tag_name": "v0.6.2", "draft": True, "target_commitish": sha}]]
+            )
+            self.assertNotEqual(code, 0)
+            self.assertEqual(output, "")
+
     def test_guard_only_suppresses_pr_preparation(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("steps.publication.outputs.pending == 'true'", workflow)
@@ -121,7 +129,7 @@ class PrepareReleaseTests(unittest.TestCase):
         self.assertIn("if: needs.release-please.outputs.pending == 'true'", recovery)
         self.assertIn("actions: write", recovery)
         self.assertNotIn("contents: write", recovery)
-        self.assertIn('{ref: "main", inputs: {tag: $tag}}', recovery)
+        self.assertIn('{ref: "main", inputs: {tag: $tag, source_sha: $sha}}', recovery)
         self.assertIn("/actions/workflows/release.yml/dispatches", recovery)
         self.assertNotIn("/releases", recovery)
 

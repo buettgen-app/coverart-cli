@@ -11,6 +11,9 @@ on:
         description: Existing release tag to recover, including a draft, for example v1.2.3
         required: true
         type: string
+      source_sha:
+        description: Exact existing draft source; omit only for explicit release-workflow repair
+        type: string
 
 permissions:
   contents: read
@@ -23,6 +26,7 @@ env:
   RELEASE_TAG: ${{ github.event.client_payload.tag || github.event.inputs.tag }}
   RELEASE_SHA: ${{ github.event.client_payload.sha || '' }}
   RELEASE_RUN_ID: ${{ github.event.client_payload.run_id || '' }}
+  RECOVERY_SOURCE_SHA: ${{ inputs.source_sha || '' }}
   RELEASE_LOOKUP_JQ: >-
     [.[][] | select(.tag_name == $tag)] |
     if length == 1 then
@@ -178,8 +182,16 @@ jobs:
             '.path == ".github/workflows/prepare-release.yml" and
              (.event == "push" or .event == "workflow_dispatch") and
              .head_branch == "main" and
-             .head_sha == $sha' <<<"$source_run" >/dev/null; then
+             (.head_sha | type == "string" and test("^[0-9a-f]{40}$"))' <<<"$source_run" >/dev/null; then
             echo "::error::Publication dispatch is not bound to the expected prepare-release run."
+            exit 1
+          fi
+          source_sha="$(jq -r .head_sha <<<"$source_run")"
+          # A main-only dispatch may start after main advances. The release is
+          # still bound to its exact merge commit, which must precede that run.
+          comparison="$(gh api "repos/$GITHUB_REPOSITORY/compare/$RELEASE_SHA...$source_sha")"
+          if ! jq -e '.behind_by == 0 and (.status == "identical" or .status == "ahead")' <<<"$comparison" >/dev/null; then
+            echo "::error::Release commit is not an ancestor of the trusted source run."
             exit 1
           fi
       - name: Restrict recovery runs to main
@@ -297,6 +309,12 @@ jobs:
                 exit 1
               fi
               release_ref="$tag_sha"
+            elif [ -n "$RECOVERY_SOURCE_SHA" ]; then
+              if [[ ! "$RECOVERY_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || [ "$RECOVERY_SOURCE_SHA" != "$target_commitish" ]; then
+                echo "::error::Automatic recovery must use the exact existing draft source."
+                exit 1
+              fi
+              release_ref="$RECOVERY_SOURCE_SHA"
             elif [[ ! "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]; then
               echo "::error::Manual recovery is not bound to a full main commit SHA."
               exit 1
@@ -311,6 +329,10 @@ jobs:
             release_ref="$tag_sha"
           fi
 
+          if [ -n "$RECOVERY_SOURCE_SHA" ] && [ "$RECOVERY_SOURCE_SHA" != "$release_ref" ]; then
+            echo "::error::Recovery source does not match the protected release source."
+            exit 1
+          fi
           if [ -z "$release_ref" ]; then
             echo "::error::Release source ref could not be resolved."
             exit 1

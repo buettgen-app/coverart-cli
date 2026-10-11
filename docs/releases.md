@@ -22,22 +22,29 @@ that it belongs to Release Please, is based on current `main`, and changes
 only the four release metadata files. It accepts only a consistent version
 increase; dependencies, build configuration and Python code must be unchanged.
 
-GitHub suppresses normal PR and push workflow events created by `GITHUB_TOKEN`.
-The completion workflow therefore explicitly dispatches CI (including Linux,
-Windows, macOS and coverage), CodeQL, fuzzing, dependency review, Actions security
-lint and the secret scan on the exact release branch. It waits for fresh,
-successful runs on that commit, checks both source commits again and merges
+GitHub places bot-created PR runs behind workflow approval and suppresses
+ordinary push triggers from `GITHUB_TOKEN` merges. After validating the exact
+metadata-only PR, the completion workflow approves its existing CI, CodeQL,
+fuzzing, dependency-review/Actions-security and secret-scan runs in the PR
+context. This satisfies required checks on the test-merge commit too. It
+explicitly dispatches only missing workflows as a fallback and prefers any PR
+runs that subsequently appear. It waits for successful runs on that commit,
+checks both source commits again and merges
 with an expected-head lease using the normal protected rebase endpoint. Failed,
 skipped, stale or timed-out runs stop publication; protection is never bypassed.
 If another change reaches `main`, its preparation run updates the release PR and
 starts a new attempt. Publication applies to releasable Conventional Commits;
 changes that do not require a new version do not force an empty release.
+After verified publication, preparation runs again to pick up releasable main
+commits that arrived while the previous draft blocked preparation. With no
+unreleased changes, this creates neither a PR nor another publication.
 
 After the merge, an explicit main-only preparation dispatch creates the mutable
 draft and sends an authenticated repository dispatch to the isolated
 `Publish release` workflow. The publish-only flag prevents a duplicate release
 PR while the draft is being published. The publisher verifies the source run,
-exact commit, package metadata, changelog and draft state before it creates a
+exact release commit (including its ancestry in the trusted main preparation
+run), package metadata, changelog and draft state before it creates a
 protected annotated version tag and publishes an immutable GitHub Release. It
 builds one wheel and source distribution, attaches those exact files to the
 release, publishes them to PyPI with OIDC attestations and cryptographically
@@ -45,7 +52,9 @@ verifies the exact local artifacts against PyPI's recorded provenance.
 
 For recovery, run `Complete automatic release` manually from `main` if the
 release PR is still open. If it was already merged but publication did not start,
-run `Prepare release` from `main` with `publish_only` enabled. For an existing
+run `Prepare release` from `main` with `publish_only` enabled and `release_sha`
+set to its merge commit. Automatic draft recovery passes the draft's exact
+`source_sha`, so later product commits do not alter the version being published. For an existing
 draft or immutable version, use `Publish release` with its tag as described below.
 
 The normal release writes use only the repository-scoped `GITHUB_TOKEN`.
@@ -53,8 +62,8 @@ Configure `RELEASE_SETTINGS_TOKEN` as a fine-grained token limited to this
 repository with **Administration: read**; it is used only to verify, immediately
 before publication, that GitHub Immutable Releases remain enabled. In
 `Settings → Actions → General → Workflow permissions`, enable **Allow GitHub
-Actions to create and approve pull requests**. Release PR checks use explicit workflow dispatches so bot-created PRs do not
-wait for a manual workflow approval. Any configured environment approval still
+Actions to create and approve pull requests**. Release PR workflow approvals are granted automatically only after the
+metadata-only boundary passes; missing runs use explicit workflow dispatches. Any configured environment approval still
 applies to publication.
 
 The PyPI Trusted Publisher must be configured for GitHub owner `buettgen-app`,
