@@ -24,6 +24,17 @@ def publication_script() -> str:
     return "\n".join(body)
 
 
+def release_commit_contract() -> str:
+    lines = WORKFLOW.read_text().splitlines()
+    start = lines.index("  RELEASE_COMMIT_JQ: >-") + 1
+    body = []
+    for line in lines[start:]:
+        if not line.startswith("    "):
+            break
+        body.append(line.strip())
+    return " ".join(body)
+
+
 class PrepareReleaseTests(unittest.TestCase):
     def run_guard(
         self,
@@ -31,10 +42,12 @@ class PrepareReleaseTests(unittest.TestCase):
         *,
         manifest: str = "0.6.2",
         api_failure: bool = False,
+        valid_release_commit: bool = True,
     ) -> tuple[int, str]:
         mock = """gh() {
           case "$*" in
             *contents/*) printf '%s' "$TEST_MANIFEST" | base64 ;;
+            *commits/*/pulls*) printf '%s' "$TEST_RELEASE_PRS" ;;
             *releases*)
               printf '%s' "$TEST_RELEASES"
               if [ "$TEST_API_FAILURE" = 1 ]; then return 42; fi ;;
@@ -52,6 +65,22 @@ class PrepareReleaseTests(unittest.TestCase):
                 "TEST_MANIFEST": json.dumps({".": manifest}),
                 "TEST_RELEASES": "\n".join(json.dumps(page) for page in pages),
                 "TEST_API_FAILURE": "1" if api_failure else "0",
+                "TEST_RELEASE_PRS": json.dumps(
+                    [
+                        {
+                            "merged_at": "2026-10-11T18:00:00Z",
+                            "merge_commit_sha": "a" * 40 if valid_release_commit else "b" * 40,
+                            "title": f"chore(main): release {manifest}",
+                            "user": {"login": "github-actions[bot]"},
+                            "base": {"ref": "main"},
+                            "head": {
+                                "ref": "release-please--branches--main--components--coverart-cli",
+                                "repo": {"full_name": "buettgen-app/coverart-cli"},
+                            },
+                        }
+                    ]
+                ),
+                "RELEASE_COMMIT_JQ": release_commit_contract(),
             }
             result = subprocess.run(
                 ["bash", "-euo", "pipefail", "-c", mock + publication_script()],
@@ -116,6 +145,14 @@ class PrepareReleaseTests(unittest.TestCase):
             )
             self.assertNotEqual(code, 0)
             self.assertEqual(output, "")
+
+    def test_rejected_draft_cannot_be_recovered_as_a_trusted_source(self) -> None:
+        code, output = self.run_guard(
+            [[{"tag_name": "v0.6.2", "draft": True, "target_commitish": "a" * 40}]],
+            valid_release_commit=False,
+        )
+        self.assertNotEqual(code, 0)
+        self.assertEqual(output, "")
 
     def test_guard_only_suppresses_pr_preparation(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")

@@ -19,6 +19,17 @@ concurrency:
   group: release-please-main
   cancel-in-progress: false
 
+env:
+  RELEASE_COMMIT_JQ: >-
+    [.[][] | select(.merged_at != null and
+      .merge_commit_sha == $sha and
+      .title == ("chore(main): release " + $version) and
+      .user.login == "github-actions[bot]" and
+      .base.ref == "main" and
+      .head.ref == "release-please--branches--main--components--coverart-cli" and
+      .head.repo.full_name == $repository)] |
+    length == 1
+
 jobs:
   release-please:
     if: github.ref == 'refs/heads/main'
@@ -49,6 +60,11 @@ jobs:
             else "false" end' <<<"$releases")"
           if [ "$pending" = "true" ]; then
             sha="$(jq -ser --arg tag "v$version" '[.[][] | select(.tag_name == $tag)][0].target_commitish | select(test("^[0-9a-f]{40}$"))' <<<"$releases")"
+            release_prs="$(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$sha/pulls?per_page=100")"
+            if ! jq -se --arg sha "$sha" --arg version "$version" --arg repository "$GITHUB_REPOSITORY" "$RELEASE_COMMIT_JQ" <<<"$release_prs" >/dev/null; then
+              echo "::error::Pending draft is not bound to its merged Release Please PR."
+              exit 1
+            fi
           fi
           echo "pending=$pending" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
