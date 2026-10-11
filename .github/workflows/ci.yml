@@ -156,7 +156,9 @@ jobs:
           python -m pip install --disable-pip-version-check --require-hashes -r requirements-ci.txt
           python -m pip install --disable-pip-version-check --no-deps --no-build-isolation -e .
       - name: Install FFmpeg test oracle
-        run: brew install ffmpeg
+        run: |
+          brew install ffmpeg-full
+          echo "$(brew --prefix ffmpeg-full)/bin" >> "$GITHUB_PATH"
       - name: Verify runtime and copy-on-write metadata contract
         run: |
           pytest tests/test_cli.py tests/test_config.py tests/test_tagging.py \
