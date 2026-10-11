@@ -124,8 +124,9 @@ coverage without a thumbnail.
 
 Report coverage means an album has **a usable sidecar or artwork embedded in every
 supported track**. This is broader than the default processing completion check,
-which requires both. Reports contain library names, relative album paths, and
-optional artwork, so review their contents before sharing them.
+which requires both. Provider provenance is not stored per album: existing
+artwork is classified as covered with an unknown origin. Reports contain library,
+artist and album names plus optional artwork; review their contents before sharing.
 
 ## Configuration
 

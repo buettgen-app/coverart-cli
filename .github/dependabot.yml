@@ -35,7 +35,6 @@ updates:
       default-days: 7
     labels:
       - "dependencies"
-      - "python"
     open-pull-requests-limit: 3
     groups:
       python-nonmajor:
