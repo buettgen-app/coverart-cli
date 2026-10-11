@@ -5,6 +5,8 @@ from __future__ import annotations
 import http.client
 import io
 import logging
+import socket
+import ssl
 import time
 import unicodedata
 import urllib.error
@@ -15,8 +17,63 @@ from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
+from typing import Any, cast
 
 MAX_HTTP_RESPONSE_BYTES = 20 * 1024 * 1024
+
+
+class _DeadlineReader(io.RawIOBase):
+    """Apply one deadline to every socket read, including HTTP/chunk headers."""
+
+    def __init__(self, sock: socket.socket, raw: io.RawIOBase, deadline: float) -> None:
+        self.sock, self.raw, self.deadline = sock, raw, deadline
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer: Any) -> int | None:
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("HTTP response exceeded the wall-clock deadline")
+        self.sock.settimeout(remaining)
+        return self.raw.readinto(buffer)
+
+    def close(self) -> None:
+        try:
+            self.raw.close()
+        finally:
+            super().close()
+
+
+class _DeadlineResponse(http.client.HTTPResponse):
+    def __init__(self, sock: socket.socket, *args: Any, **kwargs: Any) -> None:
+        super().__init__(sock, *args, **kwargs)
+        timeout = sock.gettimeout()
+        if timeout is None:
+            self.close()
+            raise ValueError("provider responses require a finite timeout")
+        try:
+            raw = sock.makefile("rb", buffering=0)
+        finally:
+            self.fp.close()
+        self.fp = cast(
+            io.BufferedReader,
+            io.BufferedReader(_DeadlineReader(sock, raw, time.monotonic() + timeout)),
+        )
+
+
+class _DeadlineHTTPSConnection(http.client.HTTPSConnection):
+    response_class = _DeadlineResponse
+
+
+class _DeadlineHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self) -> None:
+        self.context = ssl.create_default_context()
+        self.context.set_alpn_protocols(["http/1.1"])
+        super().__init__(context=self.context)
+
+    def https_open(self, req):
+        return self.do_open(_DeadlineHTTPSConnection, req, context=self.context)
 
 
 def _safe_url_for_log(url: str) -> str:
@@ -45,10 +102,10 @@ def _is_allowed_https_url(url: str, allowed_hosts: frozenset[str]) -> bool:
     try:
         parsed = urllib.parse.urlsplit(url)
         host = (parsed.hostname or "").lower().rstrip(".")
-        _ = parsed.port
+        port = parsed.port
     except (TypeError, ValueError):
         return False
-    if parsed.scheme != "https" or not host or "@" in parsed.netloc:
+    if parsed.scheme != "https" or not host or "@" in parsed.netloc or port not in {None, 443}:
         return False
     return any(
         host == pattern.lstrip(".") or (pattern.startswith(".") and host.endswith(pattern))
@@ -131,7 +188,9 @@ class CoverProvider(ABC):
             log.debug("blocked URL outside provider host policy: %s", _safe_url_for_log(url))
             return None
 
-        opener = urllib.request.build_opener(_RestrictedRedirectHandler(self.allowed_hosts))
+        opener = urllib.request.build_opener(
+            _RestrictedRedirectHandler(self.allowed_hosts), _DeadlineHTTPSHandler()
+        )
         for attempt in range(retries + 1):
             if before_attempt is not None:
                 before_attempt()
@@ -150,10 +209,17 @@ class CoverProvider(ABC):
                             return None
                     buffer = io.BytesIO()
                     received = 0
+                    # HTTPResponse.read(n) may perform many socket reads to fill
+                    # n bytes, each with a fresh socket timeout. read1 performs
+                    # at most one underlying read, returning control so a slow
+                    # trickle cannot indefinitely bypass the body deadline.
+                    read_chunk = getattr(r, "read1", r.read)
                     while received <= max_bytes:
                         if time.monotonic() >= deadline:
                             raise TimeoutError("HTTP response exceeded the wall-clock deadline")
-                        chunk = r.read(min(64 * 1024, max_bytes + 1 - received))
+                        chunk = read_chunk(min(64 * 1024, max_bytes + 1 - received))
+                        if time.monotonic() >= deadline:
+                            raise TimeoutError("HTTP response exceeded the wall-clock deadline")
                         if not chunk:
                             return buffer.getvalue()
                         buffer.write(chunk)
