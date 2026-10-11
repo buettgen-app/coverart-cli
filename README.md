@@ -278,7 +278,7 @@ Use the checked-in hash locks and the same editable-install approach as CI:
 ```bash
 git clone https://github.com/buettgen-app/coverart-cli.git
 cd coverart-cli
-python3 -m venv .venv
+python3.15 -m venv .venv
 source .venv/bin/activate
 python -m pip install --require-hashes -r requirements-ci.txt
 python -m pip install --no-deps --no-build-isolation -e .
