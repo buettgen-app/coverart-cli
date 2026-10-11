@@ -59,8 +59,10 @@ Release tests install the same FFmpeg oracle as Linux CI so audio integration
 coverage cannot disappear in the publication environment. A reviewed change to
 `release.yml` on protected main may repair the publisher while retaining the
 exact draft source; other workflow differences still stop this recovery. Both
-finalization checks require the running publisher definition to match current
-main, so a later publisher change stops binding or publication too.
+finalization checks use complete Git trees to require a regular-file publisher
+mode and compare its blob with the running definition. A symlink (even if the
+Contents API follows it), incomplete tree or later publisher change stops binding
+or publication too.
 Both preparation and the publisher verify automatic draft recovery against the
 merged Release Please PR's version, author, branch, repository and actual merge
 SHA. A rejected or mismatched draft fails closed on subsequent attempts too. For an existing

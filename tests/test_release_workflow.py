@@ -222,6 +222,8 @@ def test_exact_draft_source_allows_only_the_trusted_publisher_repair(changed, ac
         "same-source-publisher-moved",
         "same-commit",
         "missing-execution-context",
+        "publisher-target-bytes",
+        "truncated-tree",
     ],
 )
 def test_every_finalization_guard_allows_only_the_running_publisher_repair(step, mutation):
@@ -246,7 +248,7 @@ def test_every_finalization_guard_allows_only_the_running_publisher_repair(step,
         latest.pop(0)
     elif mutation == "publisher-symlink":
         latest[0]["type"] = "symlink"
-    mock = """gh() {
+    mock = r"""gh() {
       local query="" ref="" path="" previous=""
       for argument in "$@"; do
         if [ "$previous" = "--jq" ]; then query="$argument"; fi
@@ -254,7 +256,9 @@ def test_every_finalization_guard_allows_only_the_running_publisher_repair(step,
         if [[ "$argument" == repos/* ]]; then path="$argument"; fi
         previous="$argument"
       done
-      if [[ "$path" == */release.yml ]]; then
+      if [[ "$path" == */git/trees/* ]]; then
+        ref="${path##*/}"
+        ref="${ref%%\?*}"
         if [ "$ref" = "$PUBLICATION_WORKFLOW_SHA" ]; then
           printf '%s' "$TEST_RUNNING_PUBLISHER" | jq -c "$query"
         else
@@ -283,15 +287,35 @@ def test_every_finalization_guard_allows_only_the_running_publisher_repair(step,
             "TEST_MAIN": current,
             "PUBLICATION_WORKFLOW_SHA": running,
             "NON_PUBLICATION_WORKFLOWS_JQ": _folded_env_value("NON_PUBLICATION_WORKFLOWS_JQ"),
+            "REGULAR_PUBLISHER_JQ": _folded_env_value("REGULAR_PUBLISHER_JQ"),
             "TEST_PREVIOUS": json.dumps(previous),
             "TEST_LATEST": json.dumps(latest),
-            "TEST_RUNNING_PUBLISHER": json.dumps({"type": "file", "sha": "f" * 40}),
+            "TEST_RUNNING_PUBLISHER": json.dumps(
+                {
+                    "truncated": False,
+                    "tree": [
+                        {
+                            "path": ".github/workflows/release.yml",
+                            "mode": "100644",
+                            "type": "blob",
+                            "sha": "f" * 40,
+                        }
+                    ],
+                }
+            ),
             "TEST_CURRENT_PUBLISHER": json.dumps(
                 {
-                    "type": "file",
-                    "sha": "2" * 40
-                    if mutation in {"publisher-moved", "same-source-publisher-moved"}
-                    else "f" * 40,
+                    "truncated": mutation == "truncated-tree",
+                    "tree": [
+                        {
+                            "path": ".github/workflows/release.yml",
+                            "type": "blob",
+                            "mode": "120000" if mutation == "publisher-target-bytes" else "100644",
+                            "sha": "2" * 40
+                            if mutation in {"publisher-moved", "same-source-publisher-moved"}
+                            else "f" * 40,
+                        }
+                    ],
                 }
             ),
         },
