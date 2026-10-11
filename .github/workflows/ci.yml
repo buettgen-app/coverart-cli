@@ -61,22 +61,55 @@ jobs:
         run: pytest --cov=coverart_cli --cov-report=term-missing --cov-fail-under=78
 
   windows-smoke:
-    name: windows secure-boundary smoke
+    name: windows native (py${{ matrix.python-version }})
     runs-on: windows-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python-version }}
       - name: Install locked tools
         run: |
           python -m pip install --disable-pip-version-check --require-hashes -r requirements-ci.txt
           python -m pip install --disable-pip-version-check --no-deps --no-build-isolation -e .
+      - name: Install FFmpeg test oracle
+        run: |
+          $ffmpegReady = $false
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            choco install ffmpeg --yes --no-progress
+            if ($LASTEXITCODE -eq 0 -and (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+              $ffmpegReady = $true
+              break
+            }
+            if ($attempt -lt 3) { Start-Sleep -Seconds (5 * $attempt) }
+          }
+          if (-not $ffmpegReady) { throw "FFmpeg installation failed after three attempts" }
+          ffmpeg -version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify installed Windows wheel and console entry point
+        run: |
+          python -m build --wheel --no-isolation --outdir "$env:RUNNER_TEMP/coverart-wheel-dist"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m venv --system-site-packages "$env:RUNNER_TEMP/coverart-smoke"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $smokePython = "$env:RUNNER_TEMP/coverart-smoke/Scripts/python.exe"
+          $wheel = (Get-ChildItem "$env:RUNNER_TEMP/coverart-wheel-dist/*.whl").FullName
+          & $smokePython -m pip install --disable-pip-version-check --no-deps --force-reinstall $wheel
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:RUNNER_TEMP/coverart-smoke/Scripts/coverart.exe" --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:RUNNER_TEMP/coverart-smoke/Scripts/coverart.exe" --help
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "COVERART_SMOKE_PYTHON=$smokePython" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Verify platform-safe behavior
-        run: pytest tests/test_tagging.py tests/test_cli.py
+        run: pytest tests/test_windows.py tests/test_tagging.py tests/test_cli.py tests/test_config.py --cov=coverart_cli._windows_filesystem --cov-config=.github/windows-coverage.ini --cov-report=term-missing --cov-fail-under=78
 
   macos-metadata:
     name: macOS metadata preservation

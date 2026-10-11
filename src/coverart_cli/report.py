@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import errno
 import io
 import json
 import logging
@@ -16,6 +17,7 @@ from pathlib import Path, PureWindowsPath
 from PIL import Image
 
 from coverart_cli import __version__
+from coverart_cli import filesystem as fs
 from coverart_cli.tagging import (
     AUDIO_EXTS,
     CoverValidationCache,
@@ -132,6 +134,7 @@ def scan_library(root: Path, *, embed_thumbs: bool = True) -> list[AlbumEntry]:
     entries: list[AlbumEntry] = []
     thumbnail_bytes = 0
     validation_cache = CoverValidationCache()
+    fs.validate_root(root)
     if not root.is_dir():
         raise FileNotFoundError(f"library root not found or not a directory: {root}")
 
@@ -147,18 +150,18 @@ def scan_library(root: Path, *, embed_thumbs: bool = True) -> list[AlbumEntry]:
             continue
         try:
             with _open_album_target(root, target) as album_fd:
-                with os.scandir(album_fd) as scanned:
+                with fs.scandir(album_fd) as scanned:
                     audio_files = sorted(
                         d / entry.name
                         for entry in scanned
                         if not entry.name.startswith(".")
-                        and entry.is_file(follow_symlinks=False)
+                        and fs.entry_kind(entry) == "file"
                         and Path(entry.name).suffix.lower() in AUDIO_EXTS
                     )
                 if not audio_files:
                     continue
 
-                info = os.fstat(album_fd)
+                info = fs.fstat(album_fd)
                 album_identity = (info.st_dev, info.st_ino)
                 if album_identity != target.identity:
                     continue
@@ -166,7 +169,7 @@ def scan_library(root: Path, *, embed_thumbs: bool = True) -> list[AlbumEntry]:
                 if not target.relative:
                     root_meta, reason = _root_album_meta(
                         audio_files,
-                        {f: file_identity(f, dir_fd=album_fd) for f in audio_files},
+                        {str(f): file_identity(f, dir_fd=album_fd) for f in audio_files},
                         album_identity,
                         album_fd,
                     )
@@ -224,6 +227,8 @@ def scan_library(root: Path, *, embed_thumbs: bool = True) -> list[AlbumEntry]:
                     )
                 )
         except (PermissionError, OSError) as e:
+            if e.errno in {errno.EMFILE, errno.ENFILE}:
+                raise
             log.warning("cannot read %s: %s", d, e)
     return entries
 

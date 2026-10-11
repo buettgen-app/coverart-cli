@@ -2,7 +2,7 @@
 
 Resolution order (later wins):
   1. Built-in defaults (from argparse)
-  2. ~/.config/coverart-cli/config.toml  (XDG: $XDG_CONFIG_HOME or ~/.config)
+  2. User config: $XDG_CONFIG_HOME, Windows %APPDATA%, or ~/.config
   3. ./coverart.toml                     (working directory)
   4. --config PATH (explicit)
   5. Environment variables  (e.g. LASTFM_API_KEY)
@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import tomllib
 from pathlib import Path
 
@@ -73,7 +74,17 @@ def default_config_paths() -> list[Path]:
     xdg = os.environ.get("XDG_CONFIG_HOME")
     # The XDG specification requires absolute paths; relative values must be
     # ignored instead of selecting an unexpected config beneath the cwd.
-    config_root = Path(xdg) if xdg and Path(xdg).is_absolute() else Path.home() / ".config"
+    if xdg and Path(xdg).is_absolute():
+        config_root = Path(xdg)
+    elif sys.platform == "win32":
+        appdata = os.environ.get("APPDATA")
+        config_root = (
+            Path(appdata)
+            if appdata and Path(appdata).is_absolute()
+            else Path.home() / "AppData" / "Roaming"
+        )
+    else:
+        config_root = Path.home() / ".config"
     paths.append(config_root / "coverart-cli" / "config.toml")
     paths.append(Path.cwd() / "coverart.toml")
     return paths

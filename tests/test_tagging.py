@@ -39,7 +39,6 @@ def test_album_meta_str() -> None:
     assert str(m) == "Pink Floyd / The Wall"
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="secure audio replacement requires dirfds")
 @pytest.mark.parametrize("version", [3, 4])
 def test_embed_preserves_id3_version_and_artist_values(tmp_path: Path, version: int) -> None:
     path = tmp_path / "track.mp3"
@@ -54,7 +53,6 @@ def test_embed_preserves_id3_version_and_artist_values(tmp_path: Path, version: 
     assert after.getall("APIC")
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="secure audio replacement requires dirfds")
 def test_embed_preserves_legacy_id3v23_date_frames(tmp_path: Path) -> None:
     path = tmp_path / "track.mp3"
     tags = ID3()
@@ -67,7 +65,6 @@ def test_embed_preserves_legacy_id3v23_date_frames(tmp_path: Path) -> None:
     assert str(after["TDAT"]) == "2412"
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="secure audio replacement requires dirfds")
 def test_embed_upgrades_id3v22_without_losing_artist(tmp_path: Path) -> None:
     path = tmp_path / "track.mp3"
     payload = b"\x00Legacy Artist"
@@ -80,7 +77,6 @@ def test_embed_upgrades_id3v22_without_losing_artist(tmp_path: Path) -> None:
     assert str(after["TPE1"]) == "Legacy Artist"
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="secure audio replacement requires dirfds")
 def test_embed_upgrades_id3v1_without_losing_artist(tmp_path: Path) -> None:
     path = tmp_path / "track.mp3"
     tag = (
@@ -101,7 +97,6 @@ def test_embed_upgrades_id3v1_without_losing_artist(tmp_path: Path) -> None:
     assert str(after["TIT2"]) == "Legacy Title"
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="secure audio replacement requires dirfds")
 def test_embed_creates_id3v24_when_no_tag_exists(tmp_path: Path) -> None:
     path = tmp_path / "track.mp3"
     path.write_bytes(b"\xff\xfb\x90\x00" + b"\x00" * 1000)
@@ -506,6 +501,7 @@ def test_m4a_replaces_mismatched_existing_cover_flag(tmp_path: Path) -> None:
     assert existing_embedded_size(track) == len(VALID_JPEG)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows uses native directory handles")
 def test_sidecar_fallback_fails_closed_without_directory_handles(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -24,8 +24,11 @@ artwork is reused where possible.
 
 ## Install
 
-Requires **Python 3.11+ on Linux or macOS**. Windows library processing is currently
-unsupported: it requires directory-relative, no-follow filesystem APIs.
+Requires **Python 3.11+ on Linux, macOS, or Windows 10 (1709+) / 11**. Windows runs natively
+without WSL on local NTFS volumes. Junctions, symbolic links and other reparse
+points are skipped; directory-mounted volumes, UNC/network shares and non-NTFS
+volumes and SUBST drive mappings are unsupported. EFS-encrypted and multiply
+linked audio files are rejected before copying.
 
 Install in an isolated tool environment with either
 [pipx](https://pipx.pypa.io/) or [uv](https://docs.astral.sh/uv/):
@@ -41,6 +44,48 @@ coverart --version
 Upgrade with `pipx upgrade coverart-cli` or `uv tool upgrade coverart-cli`.
 PyPI contains the latest published release; this README also documents repository
 changes that may be awaiting release.
+
+### Windows (PowerShell)
+
+Install Python 3.11+ and pipx, then open a new PowerShell window after `ensurepath`:
+
+```powershell
+py -m pip install --user pipx
+py -m pipx ensurepath
+# Until the next PyPI release, install the Windows implementation from main
+# (requires Git for Windows):
+pipx install "git+https://github.com/buettgen-app/coverart-cli.git@main"
+coverart --version
+coverart "$env:USERPROFILE\Music" --dry-run -v
+coverart "$env:USERPROFILE\Music"
+coverart "$env:USERPROFILE\Music" --report-only --report-html .\report.html
+Start-Process .\report.html
+```
+
+Quote paths containing spaces. Set a Last.fm key with `$env:LASTFM_API_KEY = "YOUR_KEY"`.
+Windows defaults are read from `%APPDATA%\coverart-cli\config.toml`; an absolute
+`XDG_CONFIG_HOME` overrides that location. Use TOML literal strings for Windows
+paths, for example `report_html = 'C:\Reports\coverage.html'`.
+
+Close players or other applications holding files open before embedding artwork.
+Windows denies a conflicting write or rename while library handles are held;
+locked or read-only audio files produce an error and keep their original bytes.
+Write directories must be controlled by your account, SYSTEM or local Administrators.
+Directories granting other principals file creation, deletion or ACL control are
+refused before staging and checked again before replacement; read-only sharing
+and report generation remain available. Existing destinations are held against
+in-place writes (including encryption changes) through the atomic replacement.
+Audio staging files receive the source owner, group, DACL and SACL at creation, before private audio is
+copied; if the complete security policy cannot be read or retained, replacement
+fails safely. Embedding therefore requires an already assigned `SeSecurityPrivilege`
+(typically available in an elevated Windows session); the tool never grants or
+elevates privileges. It enables this privilege only on a temporary private thread
+token while cloning security metadata, then restores the original token. Creation, access
+and modification times are retained. Named NTFS streams are copied through the verified source handle. A
+handle-bound atomic rename replaces the destination entry without following a
+substituted symlink. Staging handles remain open through commit. Hidden, system,
+indexing and compression attributes are retained; unsupported source attributes
+fail safely. Failed renames leave the original intact.
 
 ## Quick start
 
@@ -246,7 +291,7 @@ pytest --cov=coverart_cli --cov-report=term-missing --cov-fail-under=78
 
 Install FFmpeg to enable the audio-stream preservation oracle used in CI.
 The Linux test matrix covers Python 3.11–3.14; additional jobs check macOS
-metadata preservation and rejection of unsupported Windows operations.
+metadata preservation and native Windows processing, handle locking and junction rejection.
 CodeQL, Zizmor, dependency review, fuzzing, and reproducible artifact builds
 provide separate checks.
 

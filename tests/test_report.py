@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import errno
 import io
 import json
 from pathlib import Path
@@ -350,3 +351,27 @@ def test_report_payload_cannot_enter_html_script_escape_states() -> None:
 
     assert "<" not in payload
     assert json.loads(payload)["albums"][0]["album"] == title
+
+
+@pytest.mark.parametrize("error_code", [errno.EMFILE, errno.ENFILE])
+def test_report_resource_exhaustion_keeps_previous_output(tmp_path, monkeypatch, error_code):
+    from coverart_cli import core
+    from coverart_cli.cli import main
+
+    from .test_integration import _make_album
+
+    _make_album(tmp_path, "Artist", "Album", tracks=1)
+    targets = core._find_album_targets(tmp_path)
+    monkeypatch.setattr(core, "_find_album_targets", lambda _root: targets)
+
+    def exhausted(_entry):
+        raise OSError(error_code, "injected descriptor exhaustion")
+
+    monkeypatch.setattr(report.fs, "entry_kind", exhausted)
+    with pytest.raises(OSError) as caught:
+        report.scan_library(tmp_path)
+    assert caught.value.errno == error_code
+    output = tmp_path / "report.html"
+    output.write_text("previous complete report", encoding="utf-8")
+    assert main([str(tmp_path), "--report-only", "--report-html", str(output)]) == 1
+    assert output.read_text(encoding="utf-8") == "previous complete report"

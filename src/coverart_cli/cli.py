@@ -9,8 +9,10 @@ import sys
 from pathlib import Path
 
 from coverart_cli import __version__
+from coverart_cli import filesystem as fs
 from coverart_cli.config import load_config
 from coverart_cli.core import RunOptions, RunStats, run
+from coverart_cli.errors import UnsupportedPlatformError
 from coverart_cli.providers import (
     CoverProvider,
     DeezerProvider,
@@ -65,7 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         metavar="PATH",
-        help="explicit config file (default lookup: ~/.config/coverart-cli/config.toml, "
+        help="explicit config file (default lookup: platform user config directory, "
         "then ./coverart.toml)",
     )
     p.add_argument(
@@ -229,6 +231,13 @@ def _explicit_cli_dests(parser: argparse.ArgumentParser, argv: list[str] | None)
 
 
 def main(argv: list[str] | None = None) -> int:
+    if fs.WINDOWS:
+        # Redirected Windows streams may use a strict legacy code page.
+        # Unencodable paths must preserve both successful and error exit codes.
+        for stream in (sys.stdout, sys.stderr):
+            reconfigure = getattr(stream, "reconfigure", None)
+            if callable(reconfigure):
+                reconfigure(errors="backslashreplace")
     parser = build_parser()
     explicit_dests = _explicit_cli_dests(parser, argv)
     args = parser.parse_args(argv)
@@ -257,6 +266,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.no_embed and args.no_sidecar and not args.report_only:
         print("error: --no-embed and --no-sidecar disable every output", file=sys.stderr)
         return 2
+
+    try:
+        fs.validate_root(args.root)
+    except OSError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2 if isinstance(e, UnsupportedPlatformError) else 1
 
     if not supports_secure_library_traversal():
         print(
@@ -319,7 +334,7 @@ def main(argv: list[str] | None = None) -> int:
         stats = run(opts)
     except OSError as e:
         print(f"error: {e}", file=sys.stderr)
-        return 1
+        return 2 if isinstance(e, UnsupportedPlatformError) else 1
 
     _print_summary(stats, dry_run=args.dry_run)
 
@@ -349,7 +364,7 @@ def _do_report_only(args) -> int:
         path, n = write_report(args.root, args.report_html, embed_thumbs=not args.no_thumbs)
     except OSError as e:
         print(f"error: {e}", file=sys.stderr)
-        return 1
+        return 2 if isinstance(e, UnsupportedPlatformError) else 1
     print(f"HTML report ({n} albums) written to: {path}")
     return 0
 
