@@ -1,6 +1,14 @@
 name: PR Security Baseline
 
 on:
+  workflow_dispatch:
+    inputs:
+      base_sha:
+        required: true
+        type: string
+      head_sha:
+        required: true
+        type: string
   pull_request:
 
 permissions:
@@ -8,7 +16,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: pr-security-baseline-${{ github.repository }}-${{ github.event.pull_request.number }}
+  group: pr-security-baseline-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -75,13 +83,16 @@ jobs:
       - name: Scan pull request commits for secrets
         shell: bash
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_sha }}
           GITLEAKS_BIN: ${{ runner.temp }}/gitleaks-bin/gitleaks
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || inputs.head_sha }}
         run: |
           set -euo pipefail
           [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          fi
           "$GITLEAKS_BIN" git "$GITHUB_WORKSPACE" \
             --log-opts="$BASE_SHA..$HEAD_SHA" \
             --redact=100 \

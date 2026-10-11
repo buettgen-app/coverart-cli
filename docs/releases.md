@@ -15,23 +15,47 @@ Commits to `main` follow [Conventional Commits](https://www.conventionalcommits.
 | `perf:`, `docs:`, `refactor:` | patch bump (0.3.0 → 0.3.1) |
 | `chore:`, `ci:`, `test:`        | hidden in changelog        |
 
-The `Prepare release` workflow uses the repository-scoped `GITHUB_TOKEN` to
-open and update one rolling Release PR. Merging that PR creates a mutable draft
-release and sends an authenticated repository dispatch to the isolated
-`Publish release` workflow. That workflow verifies the source run, exact
-commit, package metadata, changelog, and draft state before it creates a
+A push to `main` starts the complete automatic release sequence. The
+`Prepare release` workflow uses the repository-scoped `GITHUB_TOKEN` to open
+or update one rolling Release PR. `Complete automatic release` then checks
+that it belongs to Release Please, is based on current `main`, and changes
+only the four release metadata files. It accepts only a consistent version
+increase; dependencies, build configuration and Python code must be unchanged.
+
+GitHub suppresses normal PR and push workflow events created by `GITHUB_TOKEN`.
+The completion workflow therefore explicitly dispatches CI (including Linux,
+Windows, macOS and coverage), CodeQL, fuzzing, dependency review, Actions security
+lint and the secret scan on the exact release branch. It waits for fresh,
+successful runs on that commit, checks both source commits again and merges
+with an expected-head lease using the normal protected rebase endpoint. Failed,
+skipped, stale or timed-out runs stop publication; protection is never bypassed.
+If another change reaches `main`, its preparation run updates the release PR and
+starts a new attempt. Publication applies to releasable Conventional Commits;
+changes that do not require a new version do not force an empty release.
+
+After the merge, an explicit main-only preparation dispatch creates the mutable
+draft and sends an authenticated repository dispatch to the isolated
+`Publish release` workflow. The publish-only flag prevents a duplicate release
+PR while the draft is being published. The publisher verifies the source run,
+exact commit, package metadata, changelog and draft state before it creates a
 protected annotated version tag and publishes an immutable GitHub Release. It
 builds one wheel and source distribution, attaches those exact files to the
-release, publishes them to PyPI with OIDC attestations, and cryptographically
+release, publishes them to PyPI with OIDC attestations and cryptographically
 verifies the exact local artifacts against PyPI's recorded provenance.
+
+For recovery, run `Complete automatic release` manually from `main` if the
+release PR is still open. If it was already merged but publication did not start,
+run `Prepare release` from `main` with `publish_only` enabled. For an existing
+draft or immutable version, use `Publish release` with its tag as described below.
 
 The normal release writes use only the repository-scoped `GITHUB_TOKEN`.
 Configure `RELEASE_SETTINGS_TOKEN` as a fine-grained token limited to this
 repository with **Administration: read**; it is used only to verify, immediately
 before publication, that GitHub Immutable Releases remain enabled. In
 `Settings → Actions → General → Workflow permissions`, enable **Allow GitHub
-Actions to create and approve pull requests**. GitHub may hold checks on a
-Release Please PR until a maintainer selects **Approve workflows to run**.
+Actions to create and approve pull requests**. Release PR checks use explicit workflow dispatches so bot-created PRs do not
+wait for a manual workflow approval. Any configured environment approval still
+applies to publication.
 
 The PyPI Trusted Publisher must be configured for GitHub owner `buettgen-app`,
 repository `coverart-cli`, workflow `release.yml`, and environment `pypi`.

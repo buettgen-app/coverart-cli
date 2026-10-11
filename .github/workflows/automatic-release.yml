@@ -1,0 +1,43 @@
+name: Complete automatic release
+
+on:
+  # The privileged follow-up executes only protected main code, never PR code or artifacts.
+  workflow_run: # zizmor: ignore[dangerous-triggers]
+    workflows: [Prepare release]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: automatic-release-main
+  cancel-in-progress: false
+
+jobs:
+  complete:
+    if: >-
+      github.repository == 'buettgen-app/coverart-cli' && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'main'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
+    steps:
+      # Only trusted main code is executed with this write token. Release PRs
+      # may change version metadata only; their CI jobs get separate tokens.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.15"
+      - name: Validate, test and merge release metadata without bypassing protection
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/complete_release.py

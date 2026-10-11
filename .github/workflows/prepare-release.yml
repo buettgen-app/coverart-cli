@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      publish_only:
+        description: Publish merged release metadata without preparing another PR
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -53,7 +58,7 @@ jobs:
           # A newly created draft is not the latest published release yet. Without this guard,
           # release-please immediately opens the next release PR with the same commit history.
           skip-github-pull-request: >-
-            ${{ steps.publication.outputs.pending == 'true' ||
+            ${{ inputs.publish_only == true || steps.publication.outputs.pending == 'true' ||
                 (github.event_name == 'push' &&
                  startsWith(github.event.head_commit.message, 'chore(main): release ')) }}
       - name: Start verified publication
