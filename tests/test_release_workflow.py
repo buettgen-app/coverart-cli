@@ -2000,3 +2000,33 @@ verify_release_tag_ruleset
     else:
         assert result.returncode != 0
         assert "cannot read complete ruleset bypass metadata" in result.stdout
+
+
+def test_publication_explicitly_dispatches_catchup_only_after_provenance():
+    workflow = RELEASE_WORKFLOW.read_text()
+    job = workflow.split("\n  catch-up:\n", 1)[1]
+    assert "needs: verify-provenance" in job
+    assert "github.ref == 'refs/heads/main'" in job
+    assert "actions: write" in job
+    assert "contents: write" not in job
+    assert "always()" not in job
+    assert "uses:" not in job
+    automatic = (RELEASE_WORKFLOW.parent / "automatic-release.yml").read_text()
+    assert "workflows: [Prepare release]" in automatic
+    assert "catch-up:" not in automatic
+    command = _step_run("Dispatch preparation after successful provenance verification")
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", 'gh() { printf "%s\\n" "$@"; };\n' + command],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout.splitlines() == [
+        "workflow",
+        "run",
+        "prepare-release.yml",
+        "--repo",
+        "buettgen-app/coverart-cli",
+        "--ref",
+        "main",
+    ]

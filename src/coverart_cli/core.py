@@ -102,13 +102,13 @@ def _find_album_targets(root: Path) -> list[AlbumTarget]:
             relative = pending.pop()
             directory_fd = fs.dup(root_fd)
             try:
-                for component in relative:
-                    next_fd = fs.open(component, flags, dir_fd=directory_fd)
-                    fs.close(directory_fd)
-                    directory_fd = next_fd
-                child_dirs: list[str] = []
-                has_audio = False
                 try:
+                    for component in relative:
+                        next_fd = fs.open(component, flags, dir_fd=directory_fd)
+                        fs.close(directory_fd)
+                        directory_fd = next_fd
+                    child_dirs: list[str] = []
+                    has_audio = False
                     with fs.scandir(directory_fd) as entries:
                         for entry in entries:
                             if entry.name.startswith("."):

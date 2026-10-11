@@ -3,7 +3,7 @@ name: Complete automatic release
 on:
   # The privileged follow-up executes only protected main code, never PR code or artifacts.
   workflow_run: # zizmor: ignore[dangerous-triggers]
-    workflows: [Prepare release, Publish release]
+    workflows: [Prepare release]
     types: [completed]
     branches: [main]
   workflow_dispatch:
@@ -42,21 +42,3 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python scripts/complete_release.py
-
-  catch-up:
-    name: Recheck main changes deferred during publication
-    if: >-
-      github.repository == 'buettgen-app/coverart-cli' &&
-      github.event_name == 'workflow_run' &&
-      github.event.workflow_run.name == 'Publish release' &&
-      github.event.workflow_run.head_branch == 'main' &&
-      github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: write
-    steps:
-      - name: Prepare any unreleased main commits after verified publication
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh workflow run prepare-release.yml --repo buettgen-app/coverart-cli --ref main
