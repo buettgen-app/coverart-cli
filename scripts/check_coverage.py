@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-POLICIES = {"common": (90.0, 78.0), "windows": (85.0, 68.0)}
+POLICIES = {"common": (90.0, 78.0, 87.0), "windows": (85.0, 68.0, 80.0)}
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src" / "coverart_cli"
 COMMON_FILES = {
     path.relative_to(PACKAGE_ROOT).as_posix()
@@ -68,13 +68,19 @@ def check_report(path: Path, profile: str) -> str:
     lines, branches = percentages(totals)
     if not data["totals"]["num_statements"] or not data["totals"]["num_branches"]:
         raise ValueError("empty coverage report")
-    minimum_lines, minimum_branches = POLICIES[profile]
-    if lines < minimum_lines or branches < minimum_branches:
+    combined = (
+        100.0
+        * (totals["covered_lines"] + totals["covered_branches"])
+        / (totals["num_statements"] + totals["num_branches"])
+    )
+    minimum_lines, minimum_branches, minimum_combined = POLICIES[profile]
+    if lines < minimum_lines or branches < minimum_branches or combined < minimum_combined:
         raise ValueError(
             f"{profile}: lines {lines:.2f}% / required {minimum_lines:.0f}%; "
-            f"branches {branches:.2f}% / required {minimum_branches:.0f}%"
+            f"branches {branches:.2f}% / required {minimum_branches:.0f}%; "
+            f"combined {combined:.2f}% / required {minimum_combined:.0f}%"
         )
-    return f"{profile}: lines {lines:.2f}%, branches {branches:.2f}%"
+    return f"{profile}: lines {lines:.2f}%, branches {branches:.2f}%, combined {combined:.2f}%"
 
 
 def main(argv: list[str] | None = None) -> int:

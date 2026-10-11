@@ -58,7 +58,17 @@ def test_incomplete_report_fails_closed(tmp_path, kind):
 @pytest.mark.parametrize("dimension", ["covered_lines", "covered_branches"])
 def test_high_combined_score_cannot_hide_low_line_or_branch_coverage(tmp_path, profile, dimension):
     data = sample_report(profile)
-    data["totals"][dimension] = 60
+    failing = {
+        ("common", "covered_lines"): 89,
+        ("windows", "covered_lines"): 84,
+        ("common", "covered_branches"): 77,
+        ("windows", "covered_branches"): 67,
+    }
+    for entry in data["files"].values():
+        entry["summary"].update(covered_lines=100, covered_branches=100)
+        entry["summary"][dimension] = failing[profile, dimension]
+    for key in ("covered_lines", "num_statements", "covered_branches", "num_branches"):
+        data["totals"][key] = sum(entry["summary"][key] for entry in data["files"].values())
     path = tmp_path / "report.json"
     path.write_text(json.dumps(data), encoding="utf-8")
     assert main([str(path), "--profile", profile]) == 1
@@ -144,3 +154,40 @@ def test_report_totals_must_match_module_measurements(tmp_path):
     path = tmp_path / "report.json"
     path.write_text(json.dumps(data))
     assert main([str(path), "--profile", "common"]) == 1
+
+
+@pytest.mark.parametrize("profile,lines,branches", [("common", 90, 78), ("windows", 85, 68)])
+def test_independent_minima_cannot_hide_low_combined_coverage(tmp_path, profile, lines, branches):
+    data = sample_report(profile)
+    for entry in data["files"].values():
+        entry["summary"].update(covered_lines=lines, covered_branches=branches)
+    for key in ("covered_lines", "num_statements", "covered_branches", "num_branches"):
+        data["totals"][key] = sum(entry["summary"][key] for entry in data["files"].values())
+    path = tmp_path / "report.json"
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="combined"):
+        check_report(path, profile)
+
+
+@pytest.mark.parametrize("profile,lines,branches", [("common", 96, 78), ("windows", 92, 68)])
+@pytest.mark.parametrize("branch_weight", [1, 3])
+def test_combined_policy_uses_weighted_counts_and_accepts_exact_floor(
+    tmp_path, profile, lines, branches, branch_weight
+):
+    data = sample_report(profile)
+    for entry in data["files"].values():
+        entry["summary"].update(
+            covered_lines=lines,
+            covered_branches=branches * branch_weight,
+            num_branches=100 * branch_weight,
+        )
+    for key in ("covered_lines", "num_statements", "covered_branches", "num_branches"):
+        data["totals"][key] = sum(entry["summary"][key] for entry in data["files"].values())
+    path = tmp_path / "report.json"
+    path.write_text(json.dumps(data))
+    if branch_weight == 1:
+        expected = "87.00%" if profile == "common" else "80.00%"
+        assert f"combined {expected}" in check_report(path, profile)
+    else:
+        with pytest.raises(ValueError, match="combined"):
+            check_report(path, profile)
