@@ -10,7 +10,7 @@ import threading
 from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from coverart_cli.providers import CoverProvider, ProviderResult
@@ -87,6 +87,7 @@ class AlbumTarget:
 
 def _find_album_targets(root: Path) -> list[AlbumTarget]:
     """Traverse beneath an opened root without following replaceable components."""
+    root = root.absolute()
     if not supports_secure_library_traversal():
         raise OSError("secure no-follow library traversal is unsupported on this platform")
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
@@ -298,6 +299,24 @@ def process_album(
         return
     audio_identities = {f: file_identity(f, dir_fd=album_fd) for f in audio_candidates}
     audio_files = [f for f in audio_candidates if audio_identities[f] is not None]
+    if album_dir == opts.root.absolute():
+        identities = set()
+        for audio_file in audio_files:
+            meta = read_album_meta(
+                audio_file,
+                expected_identity=audio_identities[audio_file],
+                expected_parent_identity=album_identity,
+                parent_fd=album_fd,
+            )
+            if meta:
+                identities.add((meta.artist, meta.album))
+        if len(identities) > 1:
+            reason = "root contains tracks from multiple albums"
+            log.warning("[unsafe]   %s: %s", reason, album_dir)
+            with lock:
+                stats.errors += 1
+                stats.misses.append((album_dir, reason))
+            return
     embedded_sizes = (
         {
             f: existing_embedded_size(
@@ -484,6 +503,7 @@ def process_album(
 
 def run(opts: RunOptions) -> RunStats:
     """Top-level: walk root, process every album directory."""
+    opts = replace(opts, root=opts.root.absolute())
     stats = RunStats()
     if not opts.root.is_dir():
         raise FileNotFoundError(f"library root not found or not a directory: {opts.root}")

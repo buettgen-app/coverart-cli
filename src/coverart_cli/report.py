@@ -128,6 +128,7 @@ def _public_library_label(library_path: str) -> str:
 
 def scan_library(root: Path, *, embed_thumbs: bool = True) -> list[AlbumEntry]:
     """Walk a music library and produce one AlbumEntry per album directory found."""
+    root = root.absolute()
     entries: list[AlbumEntry] = []
     thumbnail_bytes = 0
     validation_cache = CoverValidationCache()
