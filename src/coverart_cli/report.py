@@ -148,12 +148,13 @@ def scan_library(root: Path, *, embed_thumbs: bool = True) -> list[AlbumEntry]:
         try:
             with _open_album_target(root, target) as album_fd:
                 with os.scandir(album_fd) as scanned:
-                    audio_files = [
+                    audio_files = sorted(
                         d / entry.name
                         for entry in scanned
-                        if entry.is_file(follow_symlinks=False)
+                        if not entry.name.startswith(".")
+                        and entry.is_file(follow_symlinks=False)
                         and Path(entry.name).suffix.lower() in AUDIO_EXTS
-                    ]
+                    )
                 if not audio_files:
                     continue
 
@@ -161,8 +162,9 @@ def scan_library(root: Path, *, embed_thumbs: bool = True) -> list[AlbumEntry]:
                 album_identity = (info.st_dev, info.st_ino)
                 if album_identity != target.identity:
                     continue
+                root_meta = None
                 if not target.relative:
-                    _, reason = _root_album_meta(
+                    root_meta, reason = _root_album_meta(
                         audio_files,
                         {f: file_identity(f, dir_fd=album_fd) for f in audio_files},
                         album_identity,
@@ -205,8 +207,10 @@ def scan_library(root: Path, *, embed_thumbs: bool = True) -> list[AlbumEntry]:
                             thumbnail_bytes += candidate_size
 
                 # Path heuristic: <root>/<artist>/<album>/  →  parent name = artist
-                artist = d.parent.name if d.parent != root else "Unknown Artist"
+                artist = d.parent.name if target.relative and d.parent != root else "Unknown Artist"
                 album = d.name
+                if root_meta is not None:
+                    artist, album = root_meta.artist, root_meta.album
 
                 entries.append(
                     AlbumEntry(

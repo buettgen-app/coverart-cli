@@ -10,21 +10,25 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from coverart_cli.providers import ITunesProvider  # noqa: E402
-from coverart_cli.report import AlbumEntry, build_report  # noqa: E402
-from coverart_cli.tagging import detect_image_mime  # noqa: E402
+from coverart_cli.report import (  # noqa: E402
+    MAX_REPORT_THUMB_BYTES,
+    AlbumEntry,
+    _make_data_uri,
+    build_report,
+)
+from coverart_cli.tagging import validate_cover_bytes  # noqa: E402
 
 
-def fetch_itunes(artist: str, album: str) -> str | None:
+def fetch_itunes(artist: str, album: str, provider: ITunesProvider) -> str | None:
     """Fetch a real cover from iTunes for the demo. Returns data URI or None."""
-    import base64
-
     try:
-        result = ITunesProvider(user_agent="coverart-cli-demo/1.0").fetch(artist, album)
+        result = provider.fetch(artist, album)
         if result is None:
             return None
-        mime = detect_image_mime(result.image_bytes)
-        encoded = base64.b64encode(result.image_bytes).decode("ascii")
-        return f"data:{mime};base64,{encoded}"
+        cover = validate_cover_bytes(result.image_bytes)
+        if cover is None:
+            return None
+        return _make_data_uri(Path("cover"), validated_cover=cover)
     except Exception as e:
         print(f"  warn: could not fetch {artist}/{album}: {e}", file=sys.stderr)
         return None
@@ -60,11 +64,17 @@ def main() -> None:
 
     print(f"Building demo entries (fetching {len(DEMO_ALBUMS)} covers from iTunes)...")
     entries: list[AlbumEntry] = []
+    # Share the provider so catalogue throttling applies across the whole demo.
+    provider = ITunesProvider(user_agent="coverart-cli-demo/1.0")
+    thumbnail_bytes = 0
     for artist, album, source, file_count in DEMO_ALBUMS:
         has_cover = source != "none"
         data_uri = None
         if has_cover:
-            data_uri = fetch_itunes(artist, album)
+            candidate = fetch_itunes(artist, album, provider)
+            if candidate is not None and thumbnail_bytes + len(candidate) <= MAX_REPORT_THUMB_BYTES:
+                data_uri = candidate
+                thumbnail_bytes += len(candidate)
         entries.append(
             AlbumEntry(
                 artist=artist,

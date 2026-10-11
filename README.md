@@ -127,6 +127,9 @@ supported track**. This is broader than the default processing completion check,
 which requires both. Provider provenance is not stored per album: existing
 artwork is classified as covered with an unknown origin. Reports contain library,
 artist and album names plus optional artwork; review their contents before sharing.
+For a directly selected album directory, reports use verified tag identities and
+show `Unknown Artist` when the tags cannot be read, avoiding disclosure of the
+parent directory name. Hidden tracks are excluded from counts and coverage.
 
 ## Configuration
 

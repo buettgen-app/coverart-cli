@@ -19,6 +19,7 @@ jobs:
       github.event.pull_request.user.login == 'dependabot[bot]' &&
       github.repository == 'buettgen-app/coverart-cli'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       # GitHub requires both permissions to enable native PR auto-merge.
       contents: write # zizmor: ignore[excessive-permissions]

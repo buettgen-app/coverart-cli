@@ -131,7 +131,6 @@ class CoverProvider(ABC):
             log.debug("blocked URL outside provider host policy: %s", _safe_url_for_log(url))
             return None
 
-        last_err: Exception | None = None
         opener = urllib.request.build_opener(_RestrictedRedirectHandler(self.allowed_hosts))
         for attempt in range(retries + 1):
             if before_attempt is not None:
@@ -162,6 +161,9 @@ class CoverProvider(ABC):
                     log.debug("%s response too large", _safe_url_for_log(url))
                     return None
             except urllib.error.HTTPError as e:
+                # HTTPError owns a response stream; release it before backoff,
+                # including when its exception traceback stays alive.
+                e.close()
                 if e.code in (429, 500, 502, 503, 504) and attempt < retries:
                     log.debug(
                         "%s transient %s, retry %d/%d",
@@ -174,7 +176,6 @@ class CoverProvider(ABC):
                     if e.code in {429, 503}:
                         delay = _retry_after_seconds(e.headers, delay)
                     time.sleep(delay)
-                    last_err = e
                     continue
                 log.debug("%s HTTP %s", _safe_url_for_log(url), e.code)
                 if e.code in (429, 500, 502, 503, 504):
@@ -190,12 +191,10 @@ class CoverProvider(ABC):
             ) as e:
                 if attempt < retries:
                     time.sleep(backoff * (2**attempt))
-                    last_err = e
                     continue
-                log.debug("%s network error: %s", _safe_url_for_log(url), e)
+                # Exception reasons may include the original URL/API key.
+                log.debug("%s network error: %s", _safe_url_for_log(url), type(e).__name__)
                 raise ProviderUnavailable("network failure after retries") from e
-        if last_err:
-            log.debug("%s exhausted retries: %s", _safe_url_for_log(url), last_err)
         return None
 
 

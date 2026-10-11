@@ -111,7 +111,9 @@ def test_run_processes_selected_album_directory(tmp_path: Path) -> None:
     entries = report.scan_library(album)
     assert len(entries) == 1
     assert entries[0].album == "Album"
-    assert entries[0].artist == "Artist"
+    # This fixture has no decodable stream; do not infer report identities from
+    # a selected root's possibly private parent when tags cannot be verified.
+    assert entries[0].artist == "Unknown Artist"
 
 
 @pytest.mark.parametrize("relative_root", [".", "Album"])
@@ -126,7 +128,7 @@ def test_relative_root_uses_directory_metadata(tmp_path, monkeypatch, relative_r
     assert provider.calls == [("Artist", "Album")]
     entries = report.scan_library(Path(relative_root))
     assert len(entries) == 1
-    assert (entries[0].artist, entries[0].album) == ("Artist", "Album")
+    assert (entries[0].artist, entries[0].album) == ("Unknown Artist", "Album")
 
 
 @pytest.mark.parametrize("unreadable", [False, True])

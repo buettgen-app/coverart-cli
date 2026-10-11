@@ -71,7 +71,9 @@ def default_config_paths() -> list[Path]:
     """Return the list of config paths to check, lowest-precedence first."""
     paths: list[Path] = []
     xdg = os.environ.get("XDG_CONFIG_HOME")
-    config_root = Path(xdg) if xdg else Path.home() / ".config"
+    # The XDG specification requires absolute paths; relative values must be
+    # ignored instead of selecting an unexpected config beneath the cwd.
+    config_root = Path(xdg) if xdg and Path(xdg).is_absolute() else Path.home() / ".config"
     paths.append(config_root / "coverart-cli" / "config.toml")
     paths.append(Path.cwd() / "coverart.toml")
     return paths

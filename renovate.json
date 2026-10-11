@@ -8,6 +8,7 @@
   "prHourlyLimit": 2,
   "automerge": false,
   "enabledManagers": ["github-actions", "pip-compile", "pre-commit"],
+  "github-actions": { "pinDigests": true },
   "pip-compile": {
     "managerFilePatterns": ["/^requirements-(attestation|ci|build|fuzz)\\.txt$/"]
   },

@@ -58,3 +58,27 @@ Until then updates require manual integration; no missing gate is bypassed.
 
 The existing weekly Dependabot and supply-chain workflows remain useful;
 additional external review services are not needed to run these checks.
+
+## Component review and gauntlet
+
+Review CLI/configuration, rooted traversal and concurrency, each provider,
+image validation and audio writes, report data/DOM, demo tooling, dependency
+automation and release/CI boundaries against current primary documentation.
+Retain working controls; a new release or recommendation is not by itself a
+reason to rewrite a component. Record the source, trigger and expected behavior
+for each confirmed finding in the PR.
+
+For each correction, first reproduce the failure with an offline regression
+test, apply the fix and rerun the affected tests. Then review the fix again for
+boundary failures and run the full gauntlet: Ruff, formatting, Pyrefly, the full
+coverage suite, bounded Atheris fuzzing, all canonical locks, dependency audit,
+repository hygiene, secret checks and reproducible wheel/sdist builds. Validate
+Renovate's schema and its actual dependency extraction; valid JSON does not
+guarantee compatible lock headers. GitHub CI supplies the platform matrix,
+CodeQL and connected workflow/advisory checks unavailable locally.
+
+Stop when the selected checks pass and no confirmed actionable code findings
+remain after re-review. Document unavailable checks and external setup needs
+separately; do not treat them as passing or claim that testing proves the
+absence of all vulnerabilities. Review results belong in PRs or external
+reports rather than dated snapshots in the repository.

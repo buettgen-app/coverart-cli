@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    # Weekly extra scan to catch newly disclosed CVEs in dependencies.
+    # Re-run source analysis with the latest CodeQL security queries.
     - cron: "13 7 * * 1"
 
 permissions: {}
@@ -15,6 +15,7 @@ jobs:
   analyze:
     name: Analyze (python)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       actions: read
       contents: read
