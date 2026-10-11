@@ -19,6 +19,7 @@ def test_lock_header_is_renovate_compatible_and_matches_ci(kind: str) -> None:
     assert args[:3] == ["uv", "pip", "compile"]
     assert f"--output-file={path.name}" in args
     assert "--generate-hashes" in args and "--universal" in args
+    assert "--python-version=3.11" in args
     assert not {"--extra", "--output-file"}.intersection(args)
     if kind == "ci":
         assert "pyproject.toml" in args and "--extra=dev" in args
@@ -28,4 +29,5 @@ def test_lock_header_is_renovate_compatible_and_matches_ci(kind: str) -> None:
 def test_renovate_compiler_constraint_matches_ci() -> None:
     config = json.loads((ROOT / "renovate.json").read_text())
     version = config["constraints"]["uv"].removeprefix("==")
+    assert config["constraints"]["python"] == "==3.11"
     assert f'version: "{version}"' in (ROOT / ".github/workflows/ci.yml").read_text()

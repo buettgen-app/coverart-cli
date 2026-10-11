@@ -3,7 +3,6 @@
   "extends": ["config:recommended", ":dependencyDashboard"],
   "timezone": "Europe/Berlin",
   "schedule": ["before 6am on monday"],
-  "minimumReleaseAge": "7 days",
   "prConcurrentLimit": 3,
   "prHourlyLimit": 2,
   "automerge": false,
@@ -13,14 +12,20 @@
     "managerFilePatterns": ["/^requirements-(attestation|ci|build|fuzz)\\.txt$/"]
   },
   "pre-commit": { "enabled": true },
-  "constraints": { "uv": "==0.12.7" },
+  "constraints": { "uv": "==0.12.7", "python": "==3.11" },
   "lockFileMaintenance": { "enabled": true },
   "vulnerabilityAlerts": {
     "enabled": true,
+    "prConcurrentLimit": 3,
     "schedule": ["at any time"],
     "minimumReleaseAge": "0 days"
   },
   "packageRules": [
+    {
+      "description": "Age filtering is supported for Actions and hook revisions",
+      "matchManagers": ["github-actions", "pre-commit"],
+      "minimumReleaseAge": "7 days"
+    },
     {
       "description": "Keep Python sources and their shared hash locks together",
       "matchManagers": ["pip-compile"],
