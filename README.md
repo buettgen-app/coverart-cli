@@ -8,7 +8,6 @@
 
 [![CI](https://github.com/buettgen-app/coverart-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/buettgen-app/coverart-cli/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/buettgen-app/coverart-cli/actions/workflows/codeql.yml/badge.svg)](https://github.com/buettgen-app/coverart-cli/actions/workflows/codeql.yml)
-[![CodeRabbit reviews](https://img.shields.io/coderabbit/prs/github/buettgen-app/coverart-cli?labelColor=171717&color=FF570A&label=CodeRabbit+reviews)](https://coderabbit.ai)
 [![PyPI](https://img.shields.io/pypi/v/coverart-cli.svg?color=blue)](https://pypi.org/project/coverart-cli/)
 [![PyPI downloads](https://static.pepy.tech/badge/coverart-cli/month)](https://pypi.org/project/coverart-cli/)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org)

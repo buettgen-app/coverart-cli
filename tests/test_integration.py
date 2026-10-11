@@ -99,6 +99,21 @@ def test_end_to_end_fetch_embed_sidecar(tmp_path: Path) -> None:
         assert any(k.startswith("APIC") for k in tags), f"missing APIC in {track.name}"
 
 
+def test_run_processes_selected_album_directory(tmp_path: Path) -> None:
+    album = _make_album(tmp_path, "Artist", "Album", tracks=1)
+    provider = FakeProvider()
+
+    stats = run(RunOptions(root=album, providers=[provider]))
+
+    assert stats.albums_total == 1
+    assert stats.files_embedded == 1
+    assert provider.calls == [("Artist", "Album")]
+    entries = report.scan_library(album)
+    assert len(entries) == 1
+    assert entries[0].album == "Album"
+    assert entries[0].artist == "Artist"
+
+
 def test_existing_sidecar_fills_missing_embeds_without_network(tmp_path: Path) -> None:
     album_dir = _make_album(tmp_path, "Pink Floyd", "The Wall")
     (album_dir / "cover.jpg").write_bytes(VALID_JPEG)

@@ -233,7 +233,7 @@ def probe_sidecars(
                 probe = SidecarProbe(path=p, cover=cover)
                 if current is None:
                     current = probe
-                if qualified is None and size > min_bytes:
+                if qualified is None and len(cover.data) >= min_bytes:
                     qualified = probe
         except OSError:
             continue

@@ -25,9 +25,9 @@ Only the latest minor release is supported with fixes.
 
 ## Dependencies
 
-This project pins the minimum version of `mutagen` and otherwise relies on the
-Python standard library. Dependency vulnerabilities are tracked via GitHub's
-Dependabot.
+Runtime dependencies are `mutagen` for audio metadata and Pillow for bounded
+JPEG/PNG decoding. Build, CI, fuzzing, and attestation tools use hash-locked
+requirements files. Dependency vulnerabilities are tracked via GitHub's Dependabot.
 
 ## Supply chain controls
 
@@ -51,6 +51,8 @@ Security and supply chain integrity are release blockers for this repository.
 - Verified low-risk Dependabot updates use native auto-merge only after branch
   protection passes; major and production minor updates stay manual. Release
   preparation uses the repository-scoped workflow `GITHUB_TOKEN`; no
-  long-lived personal token or private GitHub App key is stored. Release Please
-  dispatches the separately validated `release.yml` workflow only after it has
-  created a published release.
+  publishing token or private GitHub App key is stored. The repository-scoped
+  `RELEASE_SETTINGS_TOKEN` has Administration(read) access only and verifies
+  immutable-release settings and tag protection. Release Please dispatches the
+  separately validated `release.yml` workflow after creating a mutable draft;
+  the publication workflow verifies and finalizes it before PyPI publishing.

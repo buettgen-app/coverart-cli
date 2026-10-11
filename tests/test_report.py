@@ -297,7 +297,8 @@ def test_build_report_escapes_closing_script_tags() -> None:
     tpl = "__REPORT_DATA__"
     html = build_report(entries, library_path=".", template=tpl)
     assert "</script>" not in html
-    assert "<\\/script>" in html
+    assert "\\u003c/script>" in html
+    assert json.loads(html)["albums"][0]["artist"] == entries[0].artist
 
 
 def test_real_template_substitutes() -> None:
@@ -309,3 +310,12 @@ def test_real_template_substitutes() -> None:
     assert "__REPORT_DATA__" not in html
     assert "Library" in html
     assert "fonts.googleapis.com" not in html
+
+
+def test_report_payload_cannot_enter_html_script_escape_states() -> None:
+    title = "<!--<script>Ä & </script>"
+    entry = AlbumEntry("Artist", title, "Album", False, "none", 1)
+    payload = build_report([entry], library_path="Music", template="__REPORT_DATA__")
+
+    assert "<" not in payload
+    assert json.loads(payload)["albums"][0]["album"] == title

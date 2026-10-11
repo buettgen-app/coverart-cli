@@ -461,6 +461,19 @@ def test_lastfm_surfaces_explicit_error_payload(
         provider.fetch("Artist", "Album")
 
 
+@pytest.mark.parametrize("error_code", [6, "6"])
+def test_lastfm_album_not_found_is_a_miss(error_code, monkeypatch) -> None:
+    provider = LastFmProvider("key")
+    monkeypatch.setattr(
+        provider,
+        "_http_get",
+        lambda _url, **_kwargs: json.dumps(
+            {"error": error_code, "message": "Album not found"}
+        ).encode(),
+    )
+    assert provider.fetch("Artist", "Missing Album") is None
+
+
 @pytest.mark.parametrize(
     "payload",
     [b"null", b"[]", b'{"release-groups": null}', b'{"release-groups": [null]}'],

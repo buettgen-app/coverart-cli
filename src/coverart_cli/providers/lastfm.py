@@ -55,6 +55,8 @@ class LastFmProvider(CoverProvider):
                 parsed_error = int(error_code)
             except (TypeError, ValueError):
                 parsed_error = "unknown"
+            if parsed_error == 6:  # album.getinfo: requested album was not found
+                return None
             raise ProviderUnavailable(f"Last.fm API error {parsed_error}")
         album_data = data.get("album")
         if not isinstance(album_data, dict):

@@ -226,9 +226,10 @@ def build_report(
         "tool_version": __version__,
         "albums": [e.to_dict() for e in entries],
     }
-    # json.dumps is safe to inline into a <script type="application/json"> block
-    # as long as we keep "</" sequences out — escape just in case.
-    json_payload = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
+    # Script elements use HTML raw-text parsing even for application/json.
+    # Escaping every '<' also prevents <!-- and <script from entering the
+    # escaped/double-escaped states that can swallow the closing script tag.
+    json_payload = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c")
     tpl = template if template is not None else _read_template()
     return tpl.replace("__REPORT_DATA__", json_payload)
 

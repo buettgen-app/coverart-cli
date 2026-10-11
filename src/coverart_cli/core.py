@@ -129,7 +129,7 @@ def _find_album_targets(root: Path) -> list[AlbumTarget]:
                         raise
                     log.warning("cannot read %s: %s", root.joinpath(*relative), error)
                 else:
-                    if relative and has_audio:
+                    if has_audio:
                         info = os.fstat(directory_fd)
                         targets.append(
                             AlbumTarget(
