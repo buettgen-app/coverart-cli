@@ -54,4 +54,3 @@ GitHub Actions changes are checked with Zizmor. Required status checks must
 match the active workflows. If an unavailable third-party reviewer is still
 required by a repository rule, a maintainer must update that rule before merging;
 the workflows do not bypass repository protections.
-
