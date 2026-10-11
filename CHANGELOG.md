@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0](https://github.com/buettgen-app/coverart-cli/compare/v0.6.2...v0.7.0) (2026-10-11)
+
+
+### Features
+
+* support native Windows library processing ([a731b75](https://github.com/buettgen-app/coverart-cli/commit/a731b75bccbf8cbd6df74e14f042ed41ff86f5eb))
+
+
+### Bug Fixes
+
+* address project review findings and disable unlicensed reviews ([a0db4d7](https://github.com/buettgen-app/coverart-cli/commit/a0db4d76f1c77c657bdb33230201fcab1104a294))
+* bind release publication and approve verified PR checks ([ef029bf](https://github.com/buettgen-app/coverart-cli/commit/ef029bfe10a43ee4da43310ac10a3e0bfd350469))
+* bound hostile HTTP responses and enforce cross-platform coverage ([4533d42](https://github.com/buettgen-app/coverart-cli/commit/4533d42832fb01c2649a8bb7a125708c5a392c48))
+* complete verified releases automatically after main pushes ([f5b8c49](https://github.com/buettgen-app/coverart-cli/commit/f5b8c49653ff1de04d1c8cc203ac4ccf1fdddc49))
+* eliminate vulnerable attestation dependencies and restore canonical lock ([c9cf71b](https://github.com/buettgen-app/coverart-cli/commit/c9cf71bae2dfe15509df0b237a6c40823bbe1249))
+* harden report privacy, provider retries and dependency automation ([5bea929](https://github.com/buettgen-app/coverart-cli/commit/5bea929c50399adced5c9dbcfb07def79efdc6ea))
+* pin universal Python floor and preserve budgeted demo coverage ([dff5018](https://github.com/buettgen-app/coverart-cli/commit/dff501803c7ccbcc5513a774a8af2b0b98ebc019))
+* preserve ID3 versions and metadata while embedding artwork ([1759116](https://github.com/buettgen-app/coverart-cli/commit/1759116e727cfd29949c7737543035a69e21afe9))
+* reject unbound release drafts during automatic recovery ([b8fb70f](https://github.com/buettgen-app/coverart-cli/commit/b8fb70f89c2de45c7ed14857829bb4343ae8f812))
+* repair CI lock drift and require protected gates before auto-merge ([5316417](https://github.com/buettgen-app/coverart-cli/commit/5316417b3ef16297ba8076940e928c6fd9af0e10))
+* scan staged blobs and cover environment and Windows path variants ([4c85043](https://github.com/buettgen-app/coverart-cli/commit/4c85043603a1ff2d2784b7fb1a4f0713183cbda4))
+* share root validation with reports and support compilation artists ([4880cd1](https://github.com/buettgen-app/coverart-cli/commit/4880cd1bc907f7a9351966e64c66c0244827d587))
+* synchronize tooling hash locks with updated build requirements ([b6baf8e](https://github.com/buettgen-app/coverart-cli/commit/b6baf8ef15cbd0cc1d3d8d554d7229b0b75ac1f8))
+* upgrade ID3v1-only files before embedding artwork ([dac5a2e](https://github.com/buettgen-app/coverart-cli/commit/dac5a2e2b083230c78934c727a45ba604994573f))
+* validate root album identity and preserve relative-root metadata ([23bc756](https://github.com/buettgen-app/coverart-cli/commit/23bc756674223c94b970615ec9430298aba651b1))
+
+
+### Documentation
+
+* link Renovate activation and migration guide ([d3b9fc2](https://github.com/buettgen-app/coverart-cli/commit/d3b9fc2c0f9beab404fef1550d657903936b3c47))
+* normalize release guide whitespace ([ca0985d](https://github.com/buettgen-app/coverart-cli/commit/ca0985d851664c3b0b71076b48c08f095aef4407))
+* refresh README and separate release administration guide ([3b1d795](https://github.com/buettgen-app/coverart-cli/commit/3b1d795825c4632fc0473944bf8888f998e38591))
+* select Python 3.15 locally and describe the five-version test matrix ([c975c58](https://github.com/buettgen-app/coverart-cli/commit/c975c583c18016c24f5ba7ff08cb1257fc7440ac))
+
 ## [0.6.2](https://github.com/buettgen-app/coverart-cli/compare/v0.6.0...v0.6.2) (2026-09-06)
 
 This patch includes the fixes prepared for the unpublished 0.6.1 draft.
