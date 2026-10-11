@@ -19,6 +19,7 @@ def isolate_default_config(tmp_path, monkeypatch) -> None:
 def test_default_config_ignores_nonabsolute_xdg(xdg, tmp_path, monkeypatch) -> None:
     from coverart_cli.config import default_config_paths
 
+    monkeypatch.setattr("coverart_cli.config.sys.platform", "linux")
     monkeypatch.setenv("XDG_CONFIG_HOME", xdg)
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     assert default_config_paths()[0] == tmp_path / ".config" / "coverart-cli" / "config.toml"
@@ -65,3 +66,26 @@ def test_allowed_keys_match_argparse_dests() -> None:
     dests = {a.dest for a in build_parser()._actions if a.dest != "help"}
     unknown = ALLOWED_KEYS - dests
     assert unknown == set(), f"config keys not present as CLI dests: {unknown}"
+
+
+@pytest.mark.parametrize("appdata", [None, "relative-appdata"])
+def test_windows_config_falls_back_when_appdata_invalid(appdata, tmp_path, monkeypatch) -> None:
+    from coverart_cli.config import default_config_paths
+
+    monkeypatch.setattr("coverart_cli.config.sys.platform", "win32")
+    monkeypatch.delenv("XDG_CONFIG_HOME")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    if appdata is None:
+        monkeypatch.delenv("APPDATA", raising=False)
+    else:
+        monkeypatch.setenv("APPDATA", appdata)
+    assert default_config_paths()[0] == tmp_path / "AppData/Roaming/coverart-cli/config.toml"
+
+
+def test_windows_config_uses_roaming_appdata(tmp_path, monkeypatch) -> None:
+    from coverart_cli.config import default_config_paths
+
+    monkeypatch.setattr("coverart_cli.config.sys.platform", "win32")
+    monkeypatch.delenv("XDG_CONFIG_HOME")
+    monkeypatch.setenv("APPDATA", str(tmp_path / "roaming"))
+    assert default_config_paths()[0] == tmp_path / "roaming/coverart-cli/config.toml"

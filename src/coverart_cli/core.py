@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from coverart_cli import filesystem as fs
 from coverart_cli.providers import CoverProvider, ProviderResult
 from coverart_cli.tagging import (
     AUDIO_EXTS,
@@ -90,48 +91,40 @@ def _find_album_targets(root: Path) -> list[AlbumTarget]:
     root = root.absolute()
     if not supports_secure_library_traversal():
         raise OSError("secure no-follow library traversal is unsupported on this platform")
-    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-    root_fd = os.open(root, flags)
-    root_info = os.fstat(root_fd)
-    root_identity = (root_info.st_dev, root_info.st_ino)
+    flags = os.O_RDONLY | fs.DIRECTORY | fs.NOFOLLOW
+    root_fd = fs.open(root, flags)
     targets: list[AlbumTarget] = []
     pending: list[tuple[str, ...]] = [()]
     try:
+        root_info = fs.fstat(root_fd)
+        root_identity = (root_info.st_dev, root_info.st_ino)
         while pending:
             relative = pending.pop()
-            directory_fd = os.dup(root_fd)
+            directory_fd = fs.dup(root_fd)
             try:
                 for component in relative:
-                    next_fd = os.open(component, flags, dir_fd=directory_fd)
-                    os.close(directory_fd)
+                    next_fd = fs.open(component, flags, dir_fd=directory_fd)
+                    fs.close(directory_fd)
                     directory_fd = next_fd
                 child_dirs: list[str] = []
                 has_audio = False
                 try:
-                    with os.scandir(directory_fd) as entries:
+                    with fs.scandir(directory_fd) as entries:
                         for entry in entries:
                             if entry.name.startswith("."):
                                 continue
-                            try:
-                                if entry.is_dir(follow_symlinks=False):
-                                    child_dirs.append(entry.name)
-                                elif (
-                                    entry.is_file(follow_symlinks=False)
-                                    and Path(entry.name).suffix.lower() in AUDIO_EXTS
-                                ):
-                                    has_audio = True
-                            except OSError as error:
-                                if error.errno in {errno.EMFILE, errno.ENFILE}:
-                                    raise
-                                path = root.joinpath(*relative, entry.name)
-                                log.warning("cannot inspect %s: %s", path, error)
+                            kind = fs.entry_kind(entry)
+                            if kind == "directory":
+                                child_dirs.append(entry.name)
+                            elif kind == "file" and Path(entry.name).suffix.lower() in AUDIO_EXTS:
+                                has_audio = True
                 except (PermissionError, OSError) as error:
                     if error.errno in {errno.EMFILE, errno.ENFILE}:
                         raise
                     log.warning("cannot read %s: %s", root.joinpath(*relative), error)
                 else:
                     if has_audio:
-                        info = os.fstat(directory_fd)
+                        info = fs.fstat(directory_fd)
                         targets.append(
                             AlbumTarget(
                                 path=root.joinpath(*relative),
@@ -142,31 +135,31 @@ def _find_album_targets(root: Path) -> list[AlbumTarget]:
                         )
                     pending.extend((*relative, name) for name in sorted(child_dirs, reverse=True))
             finally:
-                os.close(directory_fd)
+                fs.close(directory_fd)
     finally:
-        os.close(root_fd)
+        fs.close(root_fd)
     return sorted(targets, key=lambda target: target.path)
 
 
 @contextmanager
 def _open_album_target(root: Path, target: AlbumTarget):
     """Reopen a target through its root without following moved components."""
-    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-    current_fd = os.open(root, flags)
+    flags = os.O_RDONLY | fs.DIRECTORY | fs.NOFOLLOW
+    current_fd = fs.open(root, flags)
     try:
-        info = os.fstat(current_fd)
+        info = fs.fstat(current_fd)
         if (info.st_dev, info.st_ino) != target.root_identity:
             raise OSError("library root identity changed")
         for component in target.relative:
-            next_fd = os.open(component, flags, dir_fd=current_fd)
-            os.close(current_fd)
+            next_fd = fs.open(component, flags, dir_fd=current_fd)
+            fs.close(current_fd)
             current_fd = next_fd
-        info = os.fstat(current_fd)
+        info = fs.fstat(current_fd)
         if (info.st_dev, info.st_ino) != target.identity:
             raise OSError("album directory identity changed")
         yield current_fd
     finally:
-        os.close(current_fd)
+        fs.close(current_fd)
 
 
 def find_album_dirs(root: Path) -> list[Path]:
@@ -184,7 +177,7 @@ def album_meta_for(
     *,
     fallback_to_dirnames: bool,
     audio_files: list[Path] | None = None,
-    audio_identities: dict[Path, tuple[int, int] | None] | None = None,
+    audio_identities: dict[str, tuple[int, int] | None] | None = None,
     album_identity: tuple[int, int] | None = None,
     album_fd: int | None = None,
 ) -> AlbumMeta | None:
@@ -194,7 +187,7 @@ def album_meta_for(
     for f in audio_files:
         meta = read_album_meta(
             f,
-            expected_identity=audio_identities.get(f) if audio_identities else None,
+            expected_identity=audio_identities.get(str(f)) if audio_identities else None,
             expected_parent_identity=album_identity,
             parent_fd=album_fd,
         )
@@ -210,7 +203,7 @@ def album_meta_for(
 
 def _root_album_meta(
     audio_files: list[Path],
-    audio_identities: dict[Path, tuple[int, int] | None],
+    audio_identities: dict[str, tuple[int, int] | None],
     album_identity: tuple[int, int],
     album_fd: int | None,
 ) -> tuple[AlbumMeta | None, str | None]:
@@ -218,7 +211,7 @@ def _root_album_meta(
     metadata = [
         read_album_meta(
             path,
-            expected_identity=audio_identities[path],
+            expected_identity=audio_identities[str(path)],
             expected_parent_identity=album_identity,
             parent_fd=album_fd,
         )
@@ -264,7 +257,7 @@ def process_album(
         stats.albums_total += 1
 
     if album_fd is not None:
-        album_info = os.fstat(album_fd)
+        album_info = fs.fstat(album_fd)
         album_identity = (album_info.st_dev, album_info.st_ino)
     else:
         album_identity = file_identity(album_dir, directory=True)
@@ -297,7 +290,7 @@ def process_album(
             directory_fd=album_fd,
         )
     current_sidecar = existing_sidecar or current_sidecar
-    current_info = os.fstat(album_fd) if album_fd is not None else None
+    current_info = fs.fstat(album_fd) if album_fd is not None else None
     current_identity = (
         (current_info.st_dev, current_info.st_ino)
         if current_info is not None
@@ -309,17 +302,17 @@ def process_album(
             stats.errors += 1
         return
     if album_fd is not None:
-        with os.scandir(album_fd) as entries:
+        with fs.scandir(album_fd) as entries:
             audio_candidates = sorted(
                 album_dir / entry.name
                 for entry in entries
                 if not entry.name.startswith(".")
-                and entry.is_file(follow_symlinks=False)
+                and fs.entry_kind(entry) == "file"
                 and Path(entry.name).suffix.lower() in AUDIO_EXTS
             )
     else:
         audio_candidates = sorted(f for f in album_dir.iterdir() if _is_audio_file(f))
-    current_info = os.fstat(album_fd) if album_fd is not None else None
+    current_info = fs.fstat(album_fd) if album_fd is not None else None
     current_identity = (
         (current_info.st_dev, current_info.st_ino)
         if current_info is not None
@@ -330,8 +323,8 @@ def process_album(
         with lock:
             stats.errors += 1
         return
-    audio_identities = {f: file_identity(f, dir_fd=album_fd) for f in audio_candidates}
-    audio_files = [f for f in audio_candidates if audio_identities[f] is not None]
+    audio_identities = {str(f): file_identity(f, dir_fd=album_fd) for f in audio_candidates}
+    audio_files = [f for f in audio_candidates if audio_identities[str(f)] is not None]
     root_meta = None
     if album_dir == opts.root.absolute():
         root_meta, reason = _root_album_meta(
@@ -345,9 +338,9 @@ def process_album(
             return
     embedded_sizes = (
         {
-            f: existing_embedded_size(
+            str(f): existing_embedded_size(
                 f,
-                expected_identity=audio_identities[f],
+                expected_identity=audio_identities[str(f)],
                 expected_parent_identity=album_identity,
                 validation_cache=validation_cache,
                 parent_fd=album_fd,
@@ -501,7 +494,7 @@ def process_album(
 
     if opts.do_embed:
         for f in audio_files:
-            cur = embedded_sizes[f]
+            cur = embedded_sizes[str(f)]
             replace_existing = cur > 0 and cur < opts.min_embedded_bytes
             if cur > 0 and not replace_existing:
                 with lock:
@@ -515,7 +508,7 @@ def process_album(
                 f,
                 validated_cover,
                 replace=replace_existing,
-                expected_identity=audio_identities[f],
+                expected_identity=audio_identities[str(f)],
                 expected_parent_identity=album_identity,
                 parent_fd=album_fd,
                 path_guard=album_guard,
@@ -531,6 +524,7 @@ def run(opts: RunOptions) -> RunStats:
     """Top-level: walk root, process every album directory."""
     opts = replace(opts, root=opts.root.absolute())
     stats = RunStats()
+    fs.validate_root(opts.root)
     if not opts.root.is_dir():
         raise FileNotFoundError(f"library root not found or not a directory: {opts.root}")
     if not opts.providers:
@@ -555,8 +549,8 @@ def run(opts: RunOptions) -> RunStats:
             def album_guard() -> bool:
                 try:
                     with _open_album_target(opts.root, target) as checked_fd:
-                        checked = os.fstat(checked_fd)
-                        current = os.fstat(album_fd)
+                        checked = fs.fstat(checked_fd)
+                        current = fs.fstat(album_fd)
                         return (checked.st_dev, checked.st_ino) == (
                             current.st_dev,
                             current.st_ino,

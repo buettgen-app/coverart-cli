@@ -17,6 +17,7 @@ classifiers = [
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
     "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
@@ -79,3 +80,8 @@ project-includes = [
     "**/*.py*",
     "**/*.ipynb",
 ]
+
+# The native backend is measured separately on Windows CI, not counted as
+# uncovered executable code on Linux/macOS.
+[tool.coverage.run]
+omit = ["*/_windows_filesystem.py"]

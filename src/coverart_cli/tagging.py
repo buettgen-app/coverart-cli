@@ -29,6 +29,8 @@ from mutagen.oggopus import OggOpus
 from mutagen.oggvorbis import OggVorbis
 from PIL import Image, UnidentifiedImageError
 
+from coverart_cli import filesystem as fs
+
 log = logging.getLogger(__name__)
 
 MP3_EXTS: frozenset[str] = frozenset({".mp3"})
@@ -113,12 +115,12 @@ def _mime_matches(detected: str | None, declared: str | None) -> bool:
 
 def supports_secure_sidecar_writes() -> bool:
     """Return whether directory-relative atomic sidecar replacement is available."""
-    return os.open in os.supports_dir_fd and os.rename in os.supports_dir_fd
+    return fs.WINDOWS or (os.open in os.supports_dir_fd and os.rename in os.supports_dir_fd)
 
 
 def supports_secure_library_traversal() -> bool:
     """Return whether mutation targets can be traversed through anchored dirfds."""
-    return (
+    return fs.WINDOWS or (
         bool(getattr(os, "O_DIRECTORY", 0))
         and bool(getattr(os, "O_NOFOLLOW", 0))
         and os.open in os.supports_dir_fd
@@ -215,7 +217,7 @@ def probe_sidecars(
             if identity is None:
                 continue
             size = (
-                os.stat(name, dir_fd=directory_fd, follow_symlinks=False).st_size
+                fs.stat(name, dir_fd=directory_fd, follow_symlinks=False).st_size
                 if directory_fd is not None
                 else p.stat(follow_symlinks=False).st_size
             )
@@ -252,14 +254,14 @@ def file_identity(
     """Return a no-follow device/inode identity for a regular file or directory."""
     try:
         info = (
-            os.stat(path.name, dir_fd=dir_fd, follow_symlinks=False)
+            fs.stat(path.name, dir_fd=dir_fd, follow_symlinks=False)
             if dir_fd is not None
             else path.stat(follow_symlinks=False)
         )
     except OSError:
         return None
     expected_type = stat.S_ISDIR if directory else stat.S_ISREG
-    if not expected_type(info.st_mode):
+    if not expected_type(info.st_mode) or fs.is_reparse(info):
         return None
     return (info.st_dev, info.st_ino)
 
@@ -278,40 +280,36 @@ def _open_verified_file(
     if expected_identity is None:
         raise OSError("file is not a stable regular file")
     flags = os.O_RDWR if writable else os.O_RDONLY
-    flags |= getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    flags |= getattr(os, "O_BINARY", 0) | fs.NOFOLLOW
     dir_fd = -1
-    if parent_fd is not None:
-        parent_info = os.fstat(parent_fd)
-        if expected_parent_identity is not None and (
-            not stat.S_ISDIR(parent_info.st_mode)
-            or (parent_info.st_dev, parent_info.st_ino) != expected_parent_identity
-        ):
-            raise OSError("parent directory identity changed")
-        fd = os.open(path.name, flags, dir_fd=parent_fd)
-    elif expected_parent_identity is not None and os.open in os.supports_dir_fd:
-        dir_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-        dir_fd = os.open(path.parent, dir_flags)
-        parent_info = os.fstat(dir_fd)
-        if (
-            not stat.S_ISDIR(parent_info.st_mode)
-            or (parent_info.st_dev, parent_info.st_ino) != expected_parent_identity
-        ):
-            os.close(dir_fd)
-            raise OSError("parent directory identity changed")
-        try:
-            fd = os.open(path.name, flags, dir_fd=dir_fd)
-        except Exception:
-            os.close(dir_fd)
-            raise
-    else:
-        if (
-            expected_parent_identity is not None
-            and file_identity(path.parent, directory=True) != expected_parent_identity
-        ):
-            raise OSError("parent directory identity changed")
-        fd = os.open(path, flags)
+    fd = -1
     try:
-        info = os.fstat(fd)
+        if parent_fd is not None:
+            parent_info = fs.fstat(parent_fd)
+            if expected_parent_identity is not None and (
+                not stat.S_ISDIR(parent_info.st_mode)
+                or (parent_info.st_dev, parent_info.st_ino) != expected_parent_identity
+            ):
+                raise OSError("parent directory identity changed")
+            fd = fs.open(path.name, flags, dir_fd=parent_fd)
+        elif expected_parent_identity is not None and supports_secure_library_traversal():
+            dir_flags = os.O_RDONLY | fs.DIRECTORY | fs.NOFOLLOW
+            dir_fd = fs.open(path.parent, dir_flags)
+            parent_info = fs.fstat(dir_fd)
+            if (
+                not stat.S_ISDIR(parent_info.st_mode)
+                or (parent_info.st_dev, parent_info.st_ino) != expected_parent_identity
+            ):
+                raise OSError("parent directory identity changed")
+            fd = fs.open(path.name, flags, dir_fd=dir_fd)
+        else:
+            if (
+                expected_parent_identity is not None
+                and file_identity(path.parent, directory=True) != expected_parent_identity
+            ):
+                raise OSError("parent directory identity changed")
+            fd = fs.open(path, flags)
+        info = fs.fstat(fd)
         identity = (info.st_dev, info.st_ino)
         if not stat.S_ISREG(info.st_mode) or identity != expected_identity:
             raise OSError("file identity changed")
@@ -322,9 +320,9 @@ def _open_verified_file(
             yield handle
     finally:
         if fd >= 0:
-            os.close(fd)
+            fs.close(fd)
         if dir_fd >= 0:
-            os.close(dir_fd)
+            fs.close(dir_fd)
 
 
 def read_cover_file(
@@ -343,7 +341,7 @@ def read_cover_file(
             parent_fd=parent_fd,
             writable=False,
         ) as handle:
-            size = os.fstat(handle.fileno()).st_size
+            size = fs.fstat(handle.fileno()).st_size
             if size > MAX_COVER_BYTES:
                 return None
             data = handle.read(MAX_COVER_BYTES + 1)
@@ -500,6 +498,7 @@ def has_embedded_cover(path: Path) -> bool:
 
 def _copy_audio_file(source_fd: int, target_fd: int, size: int) -> None:
     """Copy one regular file, using the kernel fast path when it is available."""
+    fs.copy_streams(source_fd, target_fd)
     if sys.platform == "darwin":
         _darwin_copy_audio_file(source_fd, target_fd)
         return
@@ -526,7 +525,7 @@ def _copy_audio_file(source_fd: int, target_fd: int, size: int) -> None:
             os.ftruncate(target_fd, 0)
             os.lseek(target_fd, 0, os.SEEK_SET)
 
-    with os.fdopen(os.dup(source_fd), "rb") as source, os.fdopen(os.dup(target_fd), "wb") as target:
+    with os.fdopen(fs.dup(source_fd), "rb") as source, os.fdopen(fs.dup(target_fd), "wb") as target:
         shutil.copyfileobj(source, target, length=1024 * 1024)
 
 
@@ -577,37 +576,42 @@ def embed_cover(
     temp_name = f".coverart-audio-{secrets.token_hex(12)}"
     try:
         if parent_fd is not None:
-            directory_fd = os.dup(parent_fd)
+            directory_fd = fs.dup(parent_fd)
         else:
-            flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-            directory_fd = os.open(path.parent, flags)
-        parent_info = os.fstat(directory_fd)
+            flags = os.O_RDONLY | fs.DIRECTORY | fs.NOFOLLOW
+            directory_fd = fs.open(path.parent, flags)
+        parent_info = fs.fstat(directory_fd)
         parent_identity = (parent_info.st_dev, parent_info.st_ino)
         if expected_parent_identity is not None and parent_identity != expected_parent_identity:
             raise OSError("parent directory identity changed")
-        source_fd = os.open(
+        source_fd = fs.open(
             path.name,
-            os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0),
+            os.O_RDONLY | getattr(os, "O_BINARY", 0) | fs.NOFOLLOW,
             dir_fd=directory_fd,
+            share_delete=fs.WINDOWS,
         )
-        source_info = os.fstat(source_fd)
+        source_info = fs.fstat(source_fd)
+        source_creation = fs.creation_time(source_fd)
+        if fs.WINDOWS and source_info.st_nlink != 1:
+            raise OSError("multiply linked Windows tracks cannot be replaced")
         source_identity = (source_info.st_dev, source_info.st_ino)
         if expected_identity is None:
             expected_identity = source_identity
         if not stat.S_ISREG(source_info.st_mode) or source_identity != expected_identity:
             raise OSError("file identity changed")
-        temp_fd = os.open(
+        temp_fd = fs.open(
             temp_name,
             os.O_RDWR | os.O_CREAT | os.O_EXCL,
             stat.S_IMODE(source_info.st_mode),
             dir_fd=directory_fd,
+            security_source_fd=source_fd if fs.WINDOWS else None,
         )
-        temp_info = os.fstat(temp_fd)
+        temp_info = fs.fstat(temp_fd)
         if hasattr(os, "fchown") and (
             source_info.st_uid != temp_info.st_uid or source_info.st_gid != temp_info.st_gid
         ):
             os.fchown(temp_fd, source_info.st_uid, source_info.st_gid)
-        os.fchmod(temp_fd, stat.S_IMODE(source_info.st_mode))
+        fs.preserve_mode(temp_fd, stat.S_IMODE(source_info.st_mode))
         _copy_audio_file(source_fd, temp_fd, source_info.st_size)
         with ExitStack() as stack:
             source = stack.enter_context(os.fdopen(source_fd, "rb"))
@@ -637,35 +641,51 @@ def embed_cover(
             if not updated:
                 return False
             handle.flush()
-            os.utime(
+            os.fsync(handle.fileno())
+            fs.preserve_attributes(source.fileno(), handle.fileno())
+            fs.preserve_times(
                 handle.fileno(),
                 ns=(source_info.st_atime_ns, source_info.st_mtime_ns),
+                creation=source_creation,
             )
-            os.fsync(handle.fileno())
+            if fs.WINDOWS:
+                # Keep the destination read lock through replacement. Delete
+                # sharing permits replacement while write sharing stays denied.
+                source_fd = fs.dup(source.fileno())
+                temp_fd = fs.dup(handle.fileno())
         if path_guard is not None and not path_guard():
             raise OSError("album path left the library")
-        current = os.stat(path.name, dir_fd=directory_fd, follow_symlinks=False)
+        # Windows read handles deny concurrent writers throughout the copy.
+        # Windows ctime semantics differ between Python's path/descriptor APIs;
+        # compare identity, size and mtime there, retaining the POSIX ctime check.
+        current = fs.stat(path.name, dir_fd=directory_fd, follow_symlinks=False)
         if (
             (current.st_dev, current.st_ino) != expected_identity
             or current.st_size != source_info.st_size
             or current.st_mtime_ns != source_info.st_mtime_ns
-            or current.st_ctime_ns != source_info.st_ctime_ns
+            or (not fs.WINDOWS and current.st_ctime_ns != source_info.st_ctime_ns)
         ):
             raise OSError("file identity changed")
-        os.replace(temp_name, path.name, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+        fs.replace(
+            temp_name,
+            path.name,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+            source_fd=temp_fd if fs.WINDOWS else None,
+        )
         return True
     except Exception as e:
         log.error("embed failed on %s: %s", path, e)
         return False
     finally:
         if source_fd >= 0:
-            os.close(source_fd)
+            fs.close(source_fd)
         if temp_fd >= 0:
-            os.close(temp_fd)
+            fs.close(temp_fd)
         if directory_fd >= 0:
             with suppress(FileNotFoundError):
-                os.unlink(temp_name, dir_fd=directory_fd)
-            os.close(directory_fd)
+                fs.unlink(temp_name, dir_fd=directory_fd)
+            fs.close(directory_fd)
 
 
 def _embed_mp3(path, cover: bytes, mime: str, *, replace: bool) -> bool:
@@ -783,7 +803,7 @@ def write_sidecar(
     dest = album_dir / f"cover{ext}"
     if expected_dir_identity is None:
         if directory_fd is not None:
-            info = os.fstat(directory_fd)
+            info = fs.fstat(directory_fd)
             expected_dir_identity = (info.st_dev, info.st_ino)
         else:
             expected_dir_identity = file_identity(album_dir, directory=True)
@@ -791,14 +811,16 @@ def write_sidecar(
         raise OSError("album directory is not a stable directory")
 
     if supports_secure_sidecar_writes():
-        dir_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-        dir_fd = os.dup(directory_fd) if directory_fd is not None else os.open(album_dir, dir_flags)
+        dir_flags = os.O_RDONLY | fs.DIRECTORY | fs.NOFOLLOW
+        dir_fd = fs.dup(directory_fd) if directory_fd is not None else fs.open(album_dir, dir_flags)
         temp_name = f".coverart-{secrets.token_hex(12)}"
+        staging_fd = -1
         try:
-            info = os.fstat(dir_fd)
+            info = fs.fstat(dir_fd)
             if (info.st_dev, info.st_ino) != expected_dir_identity:
                 raise OSError("album directory identity changed")
-            temp_fd = os.open(
+            fs.reject_encrypted_destination(dest.name, dir_fd=dir_fd)
+            temp_fd = fs.open(
                 temp_name,
                 os.O_WRONLY | os.O_CREAT | os.O_EXCL,
                 0o600,
@@ -806,13 +828,25 @@ def write_sidecar(
             )
             with os.fdopen(temp_fd, "wb") as handle:
                 handle.write(cover.data)
+                if fs.WINDOWS:
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                    staging_fd = fs.dup(handle.fileno())
             if path_guard is not None and not path_guard():
                 raise OSError("album path left the library")
-            os.replace(temp_name, dest.name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+            fs.replace(
+                temp_name,
+                dest.name,
+                src_dir_fd=dir_fd,
+                dst_dir_fd=dir_fd,
+                source_fd=staging_fd if fs.WINDOWS else None,
+            )
         finally:
+            if staging_fd >= 0:
+                fs.close(staging_fd)
             with suppress(FileNotFoundError):
-                os.unlink(temp_name, dir_fd=dir_fd)
-            os.close(dir_fd)
+                fs.unlink(temp_name, dir_fd=dir_fd)
+            fs.close(dir_fd)
         return dest
 
     raise OSError("secure directory-relative sidecar writes are unsupported on this platform")

@@ -18,6 +18,12 @@ run is active. The CLI authorizes directory objects reached through
 root-anchored, no-follow traversal; POSIX renames do not revoke already-open
 directory descriptors. Symlink and hard-link aliases are handled defensively,
 but same-user concurrent filesystem reorganization is outside the threat model.
+Native Windows writes additionally require the destination directory owner and
+namespace/policy writers to be the effective user, SYSTEM or local Administrators.
+The CLI refuses broader or unrecognized write grants before staging and checks
+again before committing. This excludes lower-trust directory writers from racing
+destination metadata checks; concurrent namespace or ACL changes by these trusted
+actors remain outside the boundary. Read-only operations do not require this guard.
 
 ## Supported versions
 

@@ -832,3 +832,42 @@ def test_identical_embedded_art_is_decoded_once_per_run(
 
     assert stats.files_already_embedded == 20
     assert calls == 1
+
+
+@pytest.mark.parametrize("entry_error", [FileNotFoundError, PermissionError])
+def test_entry_classification_failure_does_not_discard_album(tmp_path, monkeypatch, entry_error):
+    from contextlib import contextmanager
+
+    from coverart_cli import filesystem as fs
+
+    album = _make_album(tmp_path, "Artist", "Album", tracks=2)
+    original_scandir = fs.scandir
+
+    class ChangingEntry:
+        def __init__(self, entry):
+            self.entry = entry
+            self.name = entry.name
+
+        def stat(self, *, follow_symlinks):
+            if self.name == "02.mp3":
+                raise entry_error("entry no longer accessible")
+            return self.entry.stat(follow_symlinks=follow_symlinks)
+
+        def is_file(self, *, follow_symlinks):
+            raise entry_error("entry changed after first stat")
+
+        def is_dir(self, *, follow_symlinks):
+            raise entry_error("entry changed after first stat")
+
+    @contextmanager
+    def changing_scandir(fd):
+        with original_scandir(fd) as entries:
+            yield (ChangingEntry(entry) for entry in entries)
+
+    monkeypatch.setattr(fs, "scandir", changing_scandir)
+    stats = run(RunOptions(root=tmp_path, providers=[FakeProvider()], do_sidecar=False))
+    assert stats.errors == 0 and stats.files_embedded == 1
+    assert tagging.existing_embedded_size(album / "01.mp3") == len(VALID_JPEG)
+    assert tagging.existing_embedded_size(album / "02.mp3") == 0
+    entries = report.scan_library(tmp_path)
+    assert len(entries) == 1 and entries[0].file_count == 1

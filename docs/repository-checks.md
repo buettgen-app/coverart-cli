@@ -31,7 +31,7 @@ forks; ordinary PRs leave that history intact.
 ## Merge gates
 
 `CI gate` succeeds only if every job in `ci.yml` succeeds, including all four
-Python versions, macOS metadata preservation, Windows boundary checks, repository
+Python versions, macOS metadata preservation, native Windows processing on Python 3.11 and 3.14, handle locking and junction rejection, repository
 hygiene, all four canonical dependency locks, wheel smoke testing and reproducible
 wheel/sdist builds. Failed, cancelled or skipped dependencies fail this gate.
 
@@ -82,3 +82,9 @@ remain after re-review. Document unavailable checks and external setup needs
 separately; do not treat them as passing or claim that testing proves the
 absence of all vulnerabilities. Review results belong in PRs or external
 reports rather than dated snapshots in the repository.
+
+The Linux coverage gate omits the Windows-only ctypes backend. The native Windows
+jobs measure that backend separately with branch coverage and the same 78% minimum;
+they exercise real FFmpeg-generated MP3/M4A/FLAC/Vorbis/Opus files, installed wheel
+entry points, destination ACL and stream retention, file timestamps, junctions,
+ancestor locks, and write conflicts through the final replacement.
