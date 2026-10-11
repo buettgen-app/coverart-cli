@@ -81,6 +81,27 @@ def test_embed_upgrades_id3v22_without_losing_artist(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="secure audio replacement requires dirfds")
+def test_embed_upgrades_id3v1_without_losing_artist(tmp_path: Path) -> None:
+    path = tmp_path / "track.mp3"
+    tag = (
+        b"TAG"
+        + b"Legacy Title".ljust(30, b"\x00")
+        + b"Legacy Artist".ljust(30, b"\x00")
+        + b"Legacy Album".ljust(30, b"\x00")
+        + b"1999"
+        + b"\x00" * 30
+        + b"\xff"
+    )
+    path.write_bytes(b"\xff\xfb\x90\x00" + b"\x00" * 1000 + tag)
+    assert ID3(path, translate=False).version[0] == 1
+    assert embed_cover(path, VALID_JPEG)
+    after = ID3(path, translate=False)
+    assert after.version == (2, 3, 0)
+    assert str(after["TPE1"]) == "Legacy Artist"
+    assert str(after["TIT2"]) == "Legacy Title"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="secure audio replacement requires dirfds")
 def test_embed_creates_id3v24_when_no_tag_exists(tmp_path: Path) -> None:
     path = tmp_path / "track.mp3"
     path.write_bytes(b"\xff\xfb\x90\x00" + b"\x00" * 1000)

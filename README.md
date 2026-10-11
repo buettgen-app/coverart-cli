@@ -200,7 +200,7 @@ does not revoke an already-open descriptor.
 Read [SECURITY.md](SECURITY.md) for trust boundaries and vulnerability reporting.
 
 MP3 artwork writes retain existing ID3v2.3/v2.4 versions and tag values; legacy
-ID3v2.2 tags are upgraded to v2.3 and new tags use v2.4.
+ID3v1/v2.2 tags are upgraded to v2.3 and new tags use v2.4.
 
 ## Automation and Python API
 
