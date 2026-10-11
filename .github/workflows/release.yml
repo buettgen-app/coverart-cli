@@ -401,8 +401,12 @@ jobs:
             git diff --name-only "$VALIDATED_DRAFT_TARGET" HEAD >&2
             exit 1
           fi
-          if ! git diff --quiet HEAD origin/main -- .github/workflows; then
-            echo "::error::Release source uses workflows that differ from current main."
+          # Publication executes the protected main workflow definition. A
+          # reviewed repair to this same publisher may recover an exact draft
+          # source without rebinding its product code or immutable identity.
+          if ! git diff --quiet HEAD origin/main -- .github/workflows \
+            ':(exclude).github/workflows/release.yml'; then
+            echo "::error::Release source uses non-publication workflows that differ from current main."
             exit 1
           fi
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -464,6 +468,11 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check --require-hashes -r requirements-ci.txt
           python -m pip install --disable-pip-version-check --no-deps --no-build-isolation -e .
+      - name: Install FFmpeg test oracle
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+          ffmpeg -version
       - name: Verify tagged source
         run: |
           ruff check .

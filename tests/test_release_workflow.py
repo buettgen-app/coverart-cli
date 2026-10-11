@@ -166,6 +166,45 @@ def _folded_env_value(name: str, workflow: Path = RELEASE_WORKFLOW) -> str:
 
 
 @pytest.mark.parametrize(
+    "changed,accepted",
+    [("release.yml", True), ("ci.yml", False), ("pr-security-baseline.yml", False)],
+)
+def test_exact_draft_source_allows_only_the_trusted_publisher_repair(changed, accepted, tmp_path):
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "CI fixture",
+        "GIT_COMMITTER_NAME": "CI fixture",
+        "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+        "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
+    }
+
+    def git(*args):
+        return subprocess.check_output(["git", *args], cwd=tmp_path, env=env, text=True).strip()
+
+    git("init", "--quiet")
+    workflows = tmp_path / ".github/workflows"
+    workflows.mkdir(parents=True)
+    (workflows / changed).write_text("original\n")
+    git("add", ".")
+    git("commit", "--quiet", "-m", "release fixture")
+    source = git("rev-parse", "HEAD")
+    (workflows / changed).write_text("reviewed repair\n")
+    git("add", ".")
+    git("commit", "--quiet", "-m", "publisher repair fixture")
+    git("update-ref", "refs/remotes/origin/main", "HEAD")
+    git("checkout", "--quiet", "--detach", source)
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", _step_run("Verify mutable draft ancestry")],
+        cwd=tmp_path,
+        env={**env, "VALIDATED_DRAFT_TARGET": source},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) is accepted
+
+
+@pytest.mark.parametrize(
     "mutation",
     [
         None,
