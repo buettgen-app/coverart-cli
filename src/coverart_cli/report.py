@@ -135,7 +135,7 @@ def scan_library(root: Path, *, embed_thumbs: bool = True) -> list[AlbumEntry]:
     if not root.is_dir():
         raise FileNotFoundError(f"library root not found or not a directory: {root}")
 
-    from coverart_cli.core import _find_album_targets, _open_album_target
+    from coverart_cli.core import _find_album_targets, _open_album_target, _root_album_meta
 
     for target in _find_album_targets(root):
         d = target.path
@@ -161,6 +161,16 @@ def scan_library(root: Path, *, embed_thumbs: bool = True) -> list[AlbumEntry]:
                 album_identity = (info.st_dev, info.st_ino)
                 if album_identity != target.identity:
                     continue
+                if not target.relative:
+                    _, reason = _root_album_meta(
+                        audio_files,
+                        {f: file_identity(f, dir_fd=album_fd) for f in audio_files},
+                        album_identity,
+                        album_fd,
+                    )
+                    if reason:
+                        log.warning("omitting root from report: %s", reason)
+                        continue
                 sidecar_probe, _ = probe_sidecars(
                     d,
                     expected_parent_identity=album_identity,

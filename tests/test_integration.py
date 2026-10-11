@@ -129,18 +129,27 @@ def test_relative_root_uses_directory_metadata(tmp_path, monkeypatch, relative_r
     assert (entries[0].artist, entries[0].album) == ("Artist", "Album")
 
 
-def test_mixed_root_albums_are_not_modified(tmp_path, monkeypatch):
+@pytest.mark.parametrize("unreadable", [False, True])
+def test_mixed_root_albums_are_not_modified(tmp_path, monkeypatch, unreadable):
     root = tmp_path / "mixed"
     root.mkdir()
     for index, title in enumerate(["Album A", "Album B"]):
         source = _make_album(tmp_path / "sources", "Artist", title, tracks=1)
         (source / "01.mp3").rename(root / f"{index}.mp3")
+    if unreadable:
+        ID3().save(root / "1.mp3")
     before = {track: track.read_bytes() for track in root.glob("*.mp3")}
 
     # These minimal MP3 fixtures contain ID3 tags but no decodable audio stream.
     def read_fixture_meta(path, **_kwargs):
         tags = ID3(path)
-        return tagging.AlbumMeta(artist=str(tags["TPE2"]), album=str(tags["TALB"]))
+        if "TALB" not in tags:
+            return None
+        return tagging.AlbumMeta(
+            artist=str(tags["TPE2"]),
+            album=str(tags["TALB"]),
+            album_artist=str(tags["TPE2"]),
+        )
 
     monkeypatch.setattr(core, "read_album_meta", read_fixture_meta)
     provider = FakeProvider()
@@ -149,6 +158,31 @@ def test_mixed_root_albums_are_not_modified(tmp_path, monkeypatch):
     assert provider.calls == []
     assert not (root / "cover.jpg").exists()
     assert {track: track.read_bytes() for track in root.glob("*.mp3")} == before
+
+    assert report.scan_library(root) == []
+
+
+@pytest.mark.parametrize("do_embed", [False, True])
+def test_root_compilation_without_album_artist(tmp_path, monkeypatch, do_embed):
+    album = _make_album(tmp_path, "Various Artists", "Compilation", tracks=2)
+    for index, track in enumerate(sorted(album.glob("*.mp3"))):
+        tags = ID3(track)
+        tags.delall("TPE2")
+        tags.setall("TPE1", [TPE1(encoding=3, text=[f"Artist {index}"])])
+        tags.save(track)
+
+    def read_fixture_meta(path, **_kwargs):
+        tags = ID3(path)
+        return tagging.AlbumMeta(artist=str(tags["TPE1"]), album=str(tags["TALB"]))
+
+    monkeypatch.setattr(core, "read_album_meta", read_fixture_meta)
+    provider = FakeProvider()
+    stats = run(RunOptions(root=album, providers=[provider], do_embed=do_embed))
+    assert stats.errors == 0
+    assert provider.calls == [("Various Artists", "Compilation")]
+    assert (album / "cover.jpg").exists()
+    assert stats.files_embedded == (2 if do_embed else 0)
+    assert len(report.scan_library(album)) == 1
 
 
 def test_existing_sidecar_fills_missing_embeds_without_network(tmp_path: Path) -> None:

@@ -382,10 +382,14 @@ def test_real_audio_metadata_and_embedding_roundtrip(
         check=True,
     )
 
-    assert read_album_meta(track) == AlbumMeta("Tagged Artist", "Tagged Album")
+    assert read_album_meta(track) == AlbumMeta(
+        "Tagged Artist", "Tagged Album", album_artist="Tagged Artist"
+    )
     assert embed_cover(track, VALID_JPEG)
     assert existing_embedded_size(track) == len(VALID_JPEG)
-    assert read_album_meta(track) == AlbumMeta("Tagged Artist", "Tagged Album")
+    assert read_album_meta(track) == AlbumMeta(
+        "Tagged Artist", "Tagged Album", album_artist="Tagged Artist"
+    )
     subprocess.run(
         [ffmpeg, "-hide_banner", "-loglevel", "error", "-i", str(track), "-f", "null", "-"],
         check=True,

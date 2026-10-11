@@ -208,6 +208,39 @@ def album_meta_for(
     return None
 
 
+def _root_album_meta(
+    audio_files: list[Path],
+    audio_identities: dict[Path, tuple[int, int] | None],
+    album_identity: tuple[int, int],
+    album_fd: int | None,
+) -> tuple[AlbumMeta | None, str | None]:
+    """Validate a root group and distinguish album artists from track artists."""
+    metadata = [
+        read_album_meta(
+            path,
+            expected_identity=audio_identities[path],
+            expected_parent_identity=album_identity,
+            parent_fd=album_fd,
+        )
+        for path in audio_files
+    ]
+    readable = [meta for meta in metadata if meta is not None]
+    if not readable:
+        return None, None  # Preserve directory-name fallback for untagged albums.
+    if len(readable) != len(metadata):
+        return None, "root contains tracks with unverifiable album identity"
+    albums = {meta.album.casefold() for meta in readable}
+    album_artists = {meta.album_artist.casefold() for meta in readable if meta.album_artist}
+    if len(albums) > 1 or len(album_artists) > 1:
+        return None, "root contains tracks from multiple albums"
+    if album_artists:
+        return next(meta for meta in readable if meta.album_artist), None
+    artists = {meta.artist.casefold() for meta in readable}
+    if len(artists) > 1:
+        return AlbumMeta(artist="Various Artists", album=readable[0].album), None
+    return readable[0], None
+
+
 def process_album(
     album_dir: Path,
     opts: RunOptions,
@@ -299,19 +332,12 @@ def process_album(
         return
     audio_identities = {f: file_identity(f, dir_fd=album_fd) for f in audio_candidates}
     audio_files = [f for f in audio_candidates if audio_identities[f] is not None]
+    root_meta = None
     if album_dir == opts.root.absolute():
-        identities = set()
-        for audio_file in audio_files:
-            meta = read_album_meta(
-                audio_file,
-                expected_identity=audio_identities[audio_file],
-                expected_parent_identity=album_identity,
-                parent_fd=album_fd,
-            )
-            if meta:
-                identities.add((meta.artist, meta.album))
-        if len(identities) > 1:
-            reason = "root contains tracks from multiple albums"
+        root_meta, reason = _root_album_meta(
+            audio_files, audio_identities, album_identity, album_fd
+        )
+        if reason:
             log.warning("[unsafe]   %s: %s", reason, album_dir)
             with lock:
                 stats.errors += 1
@@ -343,7 +369,7 @@ def process_album(
         log.info("[skip]     %s (requested artwork already present)", album_dir.name)
         return
 
-    meta = album_meta_for(
+    meta = root_meta or album_meta_for(
         album_dir,
         fallback_to_dirnames=opts.fallback_to_dirnames,
         audio_files=audio_files,
