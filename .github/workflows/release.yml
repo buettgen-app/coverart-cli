@@ -430,7 +430,9 @@ jobs:
         run: |
           ruff check .
           pyrefly check
-          pytest
+          pytest --cov=coverart_cli --cov=scripts --cov-report=term-missing \
+            --cov-fail-under=87 --cov-report=json:coverage-release.json
+          python scripts/check_coverage.py coverage-release.json --profile common
 
   build:
     name: Build and verify release artifacts

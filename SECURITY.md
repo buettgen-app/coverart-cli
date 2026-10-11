@@ -37,6 +37,18 @@ requirements files. Dependency vulnerabilities are tracked via GitHub's Dependab
 CI regenerates every build, development, fuzzing and attestation lock with the
 pinned uv version and fails if the checked-in files differ.
 
+Provider requests and redirects permit only each provider's configured HTTPS
+hosts on the standard HTTPS port. HTTP headers and bodies share a deadline
+enforced at every underlying socket read, including chunk framing; responses
+also have a byte cap. DNS and connection establishment are outside that response
+deadline and retain the transport's connection-timeout behavior. Oversized Ogg picture blocks
+are rejected before base64 allocation, and oversized covers bypass cache hashing.
+
+Test coverage is measured separately for shared code and the native Windows
+backend, with required line/branch gates and downloadable reports. Coverage
+is evidence of executed paths, not certification of security; see the
+[coverage policy](docs/repository-checks.md#test-coverage).
+
 ## Repository privacy
 
 Tracked files are checked for non-example contact addresses, personal home paths,

@@ -60,7 +60,20 @@ jobs:
           sudo apt-get install --yes --no-install-recommends ffmpeg
           ffmpeg -version
       - name: Unit + integration tests
-        run: pytest --cov=coverart_cli --cov-report=term-missing --cov-fail-under=78
+        run: |
+          pytest --cov=coverart_cli --cov=scripts --cov-report=term-missing --cov-fail-under=87 \
+            --cov-report=json:coverage-results/report.json \
+            --cov-report=xml:coverage-results/coverage.xml \
+            --cov-report=html:coverage-results/html
+          python scripts/check_coverage.py coverage-results/report.json --profile common
+      - name: Upload Linux coverage
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-linux-${{ matrix.python-version }}
+          path: coverage-results/
+          if-no-files-found: error
+          retention-days: 7
 
   windows-smoke:
     name: windows native (py${{ matrix.python-version }})
@@ -112,7 +125,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "COVERART_SMOKE_PYTHON=$smokePython" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Verify platform-safe behavior
-        run: pytest tests/test_windows.py tests/test_tagging.py tests/test_cli.py tests/test_config.py --cov=coverart_cli._windows_filesystem --cov-config=.github/windows-coverage.ini --cov-report=term-missing --cov-fail-under=78
+        run: |
+          pytest tests/test_windows.py tests/test_tagging.py tests/test_cli.py tests/test_config.py tests/test_providers.py tests/test_security_boundaries.py tests/test_coverage_gate.py --cov=coverart_cli._windows_filesystem --cov-config=.github/windows-coverage.ini --cov-report=term-missing --cov-fail-under=80 --cov-report=json:coverage-results/report.json --cov-report=xml:coverage-results/coverage.xml --cov-report=html:coverage-results/html
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/check_coverage.py coverage-results/report.json --profile windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload Windows backend coverage
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-windows-${{ matrix.python-version }}
+          path: coverage-results/
+          if-no-files-found: error
+          retention-days: 7
 
   macos-metadata:
     name: macOS metadata preservation
@@ -130,12 +155,27 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check --require-hashes -r requirements-ci.txt
           python -m pip install --disable-pip-version-check --no-deps --no-build-isolation -e .
-      - name: Verify copy-on-write metadata contract
+      - name: Install FFmpeg test oracle
+        run: brew install ffmpeg
+      - name: Verify runtime and copy-on-write metadata contract
         run: |
-          pytest \
-            tests/test_tagging.py::test_embed_cover_preserves_macos_extended_attributes \
-            tests/test_tagging.py::test_embed_cover_identity_mismatch_does_not_double_close_fd \
-            tests/test_tagging.py::test_embed_cover_rejects_same_inode_change_after_copy
+          pytest tests/test_cli.py tests/test_config.py tests/test_tagging.py \
+            tests/test_providers.py tests/test_report.py tests/test_integration.py \
+            tests/test_filesystem.py tests/test_security_boundaries.py \
+            tests/test_repository_hygiene.py tests/test_coverage_gate.py \
+            --cov=coverart_cli --cov=scripts --cov-report=term-missing --cov-fail-under=87 \
+            --cov-report=json:coverage-results/report.json \
+            --cov-report=xml:coverage-results/coverage.xml \
+            --cov-report=html:coverage-results/html
+          python scripts/check_coverage.py coverage-results/report.json --profile common
+      - name: Upload macOS coverage
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-macos-3.15
+          path: coverage-results/
+          if-no-files-found: error
+          retention-days: 7
 
   smoke:
     name: smoke (install wheel + run end-to-end)
@@ -291,6 +331,47 @@ jobs:
               raise SystemExit("wheel and sdist builds are not reproducible")
           PY
 
+  coverage:
+    name: Coverage reports and gates
+    needs: [test, windows-smoke, macos-metadata]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: coverage-*
+          path: coverage-downloads/
+      - name: Require every platform report and summarize measurements
+        run: |
+          python3 - <<'PYCODE'
+          import os
+          from pathlib import Path
+          from scripts.check_coverage import check_report
+
+          expected = {
+              **{f"linux-{version}": "common" for version in ("3.11", "3.12", "3.13", "3.14", "3.15")},
+              "windows-3.11": "windows",
+              "windows-3.15": "windows",
+              "macos-3.15": "common",
+          }
+          root = Path("coverage-downloads")
+          if {p.name for p in root.iterdir()} != {f"coverage-{name}" for name in expected}:
+              raise SystemExit("Coverage artifact set does not match the tested platform matrix")
+          rows = ["## Test coverage", "", "| Platform | Measurement |", "| --- | --- |"]
+          for platform, profile in expected.items():
+              directory = root / f"coverage-{platform}"
+              for filename in ("report.json", "coverage.xml", "html/index.html"):
+                  if not (directory / filename).is_file():
+                      raise SystemExit(f"Missing {platform} coverage artifact: {filename}")
+              result = check_report(directory / "report.json", profile)
+              rows.append(f"| {platform} | {result} |")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:
+              output.write("\n".join(rows) + "\n")
+          PYCODE
+
   gate:
     name: CI gate
     if: always()
@@ -302,6 +383,7 @@ jobs:
       - smoke
       - attestation-lock
       - reproducible-artifacts
+      - coverage
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

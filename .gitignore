@@ -21,6 +21,9 @@ ENV/
 .coverage
 .coverage.*
 htmlcov/
+coverage-results/
+coverage-downloads/
+coverage-release.json
 .tox/
 .ruff_cache/
 .mypy_cache/

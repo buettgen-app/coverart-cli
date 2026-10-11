@@ -286,7 +286,11 @@ python -m pip install --no-deps --no-build-isolation -e .
 ruff check .
 ruff format --check .
 pyrefly check
-pytest --cov=coverart_cli --cov-report=term-missing --cov-fail-under=78
+pytest --cov=coverart_cli --cov=scripts --cov-report=term-missing --cov-fail-under=87 \
+  --cov-report=json:coverage-results/report.json \
+  --cov-report=xml:coverage-results/coverage.xml \
+  --cov-report=html:coverage-results/html
+python scripts/check_coverage.py coverage-results/report.json --profile common
 ```
 
 Install FFmpeg to enable the audio-stream preservation oracle used in CI.
@@ -294,6 +298,15 @@ The Linux test matrix covers Python 3.11–3.15; additional jobs check macOS
 metadata preservation and native Windows processing, handle locking and junction rejection.
 CodeQL, Zizmor, dependency review, fuzzing, and reproducible artifact builds
 provide separate checks.
+
+Test coverage measures executed code, separately from the report's album-art
+coverage. **Line coverage** counts executed statements; **branch coverage** checks
+both outcomes of decisions, including failures and rejected inputs. Neither proves
+that a test asserts the right behavior or that the program has no vulnerabilities.
+CI requires at least 90% lines and 78% branches for shared code, with a separate
+native Windows measurement. Download `coverage-*` artifacts from a CI run and open
+`html/index.html` to see missed lines and branches. See the
+[coverage policy](docs/repository-checks.md#test-coverage) for scopes and gates.
 
 Run `python scripts/check_repository.py` to check tracked files for private
 contact details and local artifacts. See [repository hygiene and CI gates](docs/repository-checks.md)

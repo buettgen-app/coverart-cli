@@ -42,6 +42,10 @@ AUDIO_EXTS: frozenset[str] = MP3_EXTS | MP4_EXTS | FLAC_EXTS | OGG_EXTS | OPUS_E
 SIDECAR_NAMES: tuple[str, ...] = ("cover.jpg", "cover.png", "folder.jpg", "folder.png")
 MIN_COVER_BYTES = 2000
 MAX_COVER_BYTES = 20 * 1024 * 1024
+# FLAC picture blocks also contain MIME/description fields. Bound the encoded
+# block before decoding, including artwork embedded in Ogg metadata.
+MAX_PICTURE_BLOCK_BYTES = MAX_COVER_BYTES + 64 * 1024
+MAX_ENCODED_PICTURE_BYTES = 4 * ((MAX_PICTURE_BLOCK_BYTES + 2) // 3)
 MAX_IMAGE_DIMENSION = 4_096
 MAX_IMAGE_PIXELS = 16_777_216
 FileIdentity = tuple[int, int]
@@ -84,6 +88,8 @@ class CoverValidationCache:
         self._lock = threading.Lock()
 
     def mime(self, data: bytes) -> str | None:
+        if len(data) > MAX_COVER_BYTES:
+            return None
         key = (len(data), hashlib.sha256(data).digest())
         with self._lock:
             if key in self._values:
@@ -430,13 +436,20 @@ def _ogg_picture_size(audio, cache: CoverValidationCache | None = None) -> int:
     best = 0
     for blob in blob_list:
         try:
-            raw = base64.b64decode(blob)
+            raw = _decode_picture_block(blob)
             pic = Picture(raw)
             if _mime_matches(_detected_mime(pic.data, cache), pic.mime):
                 best = max(best, len(pic.data))
         except Exception:
             continue
     return best
+
+
+def _decode_picture_block(blob: str | bytes) -> bytes:
+    """Bound untrusted base64 before allocating its decoded representation."""
+    if len(blob) > MAX_ENCODED_PICTURE_BYTES:
+        raise ValueError("encoded picture block exceeds the size limit")
+    return base64.b64decode(blob)
 
 
 def validate_cover_bytes(data: bytes) -> ValidatedCover | None:
@@ -771,7 +784,7 @@ def _embed_ogg(path, cover: bytes, mime: str, cls, *, replace: bool) -> bool:
     if not replace:
         for blob in existing:
             try:
-                pic = Picture(base64.b64decode(blob))
+                pic = Picture(_decode_picture_block(blob))
                 if _mime_matches(detect_image_mime(pic.data), pic.mime):
                     return True
             except Exception:

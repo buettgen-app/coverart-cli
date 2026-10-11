@@ -83,8 +83,42 @@ separately; do not treat them as passing or claim that testing proves the
 absence of all vulnerabilities. Review results belong in PRs or external
 reports rather than dated snapshots in the repository.
 
-The Linux coverage gate omits the Windows-only ctypes backend. The native Windows
-jobs measure that backend separately with branch coverage and the same 78% minimum;
+## Test coverage
+
+Coverage measures which statements and decision outcomes the tests execute.
+Line and branch percentages are checked independently; pytest-cov's combined
+percentage is an additional gate, not a substitute for either measurement.
+Coverage does not establish assertion quality, absence of vulnerabilities, or
+real-world desktop compatibility.
+
+| Scope | Line minimum | Branch minimum | Combined minimum |
+| --- | ---: | ---: | ---: |
+| Shared runtime and repository scripts, Linux/macOS | 90% | 78% | 87% |
+| Native Windows filesystem backend | 85% | 68% | 80% |
+
+Every measured module also needs at least 75% lines and 50% branches. The native
+Windows minimum reflects its separate measured baseline; it is not equivalent to
+complete error-path coverage. Increase these floors after additional behavior tests,
+never lower them simply to make a change pass.
+
+Linux measures all supported Python minors. macOS runs the runtime suite,
+filesystem failure tests and repository/coverage gates, including actual metadata
+preservation and FFmpeg checks. Linux/macOS omit only the Windows-only ctypes
+backend, which cannot execute on those platforms. The native Windows
+jobs measure that backend independently with `.github/windows-coverage.ini`;
 they exercise real FFmpeg-generated MP3/M4A/FLAC/Vorbis/Opus files, installed wheel
 entry points, destination ACL and stream retention, file timestamps, junctions,
 ancestor locks, and write conflicts through the final replacement.
+
+`scripts/check_coverage.py` rejects absent or malformed reports, disabled branch
+measurement, missing runtime modules, excluded executable lines and below-policy
+totals/modules. Newly added runtime modules are automatically required. The
+`Coverage reports and gates` job requires all eight platform/interpreter reports
+and summarizes them; `CI gate` depends on it. Tagged Linux release tests apply the
+same shared-code policy.
+
+Each platform publishes JSON, Cobertura XML and an HTML report in its uniquely
+named `coverage-*` artifact, retained for seven days. Open `html/index.html` to
+inspect missed statements and branch outcomes. These reports contain repository
+source, not users' music libraries. Failed test runs upload any reports they
+produced for diagnosis; missing output never counts as passing.
