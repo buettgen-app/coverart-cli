@@ -24,6 +24,111 @@ ATTESTED_NAME = "coverart_cli-0.6.1.tar.gz"
 ATTESTED_DIGEST = "b" * 64
 
 
+@pytest.mark.parametrize(
+    "mutation,accepted",
+    [
+        ("exact", True),
+        ("advanced", True),
+        ("behind", False),
+        ("diverged", False),
+        ("path", False),
+        ("branch", False),
+        ("event", False),
+        ("sha", False),
+    ],
+)
+def test_publication_source_is_bound_to_release_ancestry(mutation, accepted, tmp_path):
+    source = {
+        "path": ".github/workflows/prepare-release.yml",
+        "event": "workflow_dispatch",
+        "head_branch": "main",
+        "head_sha": RELEASE_SHA,
+    }
+    comparison = {"behind_by": 0, "status": "identical"}
+    if mutation == "advanced":
+        source["head_sha"] = BOUND_SHA
+        comparison["status"] = "ahead"
+    elif mutation == "behind":
+        comparison = {"behind_by": 1, "status": "behind"}
+    elif mutation == "diverged":
+        comparison = {"behind_by": 1, "status": "diverged"}
+    elif mutation in {"path", "branch", "event", "sha"}:
+        source[
+            {"path": "path", "branch": "head_branch", "event": "event", "sha": "head_sha"}[mutation]
+        ] = "unexpected"
+    mock = """gh() {
+      case "$*" in
+        *actions/runs/42) printf '%s' "$TEST_SOURCE" ;;
+        *compare/*) printf '%s' "$TEST_COMPARISON" ;;
+        *) return 64 ;;
+      esac
+    }
+    """
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", mock + _step_run("Verify publication source workflow")],
+        env={
+            **os.environ,
+            "GITHUB_REPOSITORY": "buettgen-app/coverart-cli",
+            "RELEASE_SHA": RELEASE_SHA,
+            "RELEASE_RUN_ID": "42",
+            "TEST_SOURCE": json.dumps(source),
+            "TEST_COMPARISON": json.dumps(comparison),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) is accepted
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [(RELEASE_SHA, RELEASE_SHA), ("", BOUND_SHA), (BOUND_SHA, None), ("invalid", None)],
+)
+def test_automatic_draft_recovery_uses_its_bound_source_after_main_advances(
+    source, expected, tmp_path
+):
+    release = {
+        "id": 42,
+        "draft": True,
+        "immutable": False,
+        "prerelease": False,
+        "tag_name": RELEASE_TAG,
+        "target_commitish": RELEASE_SHA,
+        "body": "notes",
+    }
+    mock = """gh() {
+      case "$*" in
+        *git/matching-refs/*) printf '[]' ;;
+        *releases*) printf '%s' "$TEST_RELEASES" ;;
+        *) return 64 ;;
+      esac
+    }
+    """
+    output = tmp_path / "output"
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", mock + _step_run("Verify GitHub release state")],
+        env={
+            **os.environ,
+            "GITHUB_REPOSITORY": "buettgen-app/coverart-cli",
+            "RELEASE_TAG": RELEASE_TAG,
+            "GITHUB_EVENT_NAME": "workflow_dispatch",
+            "GITHUB_SHA": BOUND_SHA,
+            "RECOVERY_SOURCE_SHA": source,
+            "GITHUB_OUTPUT": str(output),
+            "TEST_RELEASES": json.dumps([release]),
+            "RELEASE_LOOKUP_JQ": _folded_env_value("RELEASE_LOOKUP_JQ"),
+            "EXACT_TAG_JQ": _folded_env_value("EXACT_TAG_JQ"),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) is (expected is not None)
+    if expected is not None:
+        assert f"ref={expected}\n" in output.read_text()
+
+
 def _folded_env_value(name: str) -> str:
     lines = RELEASE_WORKFLOW.read_text(encoding="utf-8").splitlines()
     marker = f"  {name}: >-"

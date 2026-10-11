@@ -9,6 +9,9 @@ on:
         description: Publish merged release metadata without preparing another PR
         type: boolean
         default: false
+      release_sha:
+        description: Exact merged release commit expected from automatic completion
+        type: string
 
 permissions: {}
 
@@ -24,6 +27,7 @@ jobs:
     outputs:
       pending: ${{ steps.publication.outputs.pending }}
       tag: ${{ steps.publication.outputs.tag }}
+      sha: ${{ steps.publication.outputs.sha }}
     permissions:
       contents: write
       pull-requests: write
@@ -43,9 +47,13 @@ jobs:
               if (.[0].draft | type) != "boolean" then error("invalid release state")
               else .[0].draft | tostring end
             else "false" end' <<<"$releases")"
+          if [ "$pending" = "true" ]; then
+            sha="$(jq -ser --arg tag "v$version" '[.[][] | select(.tag_name == $tag)][0].target_commitish | select(test("^[0-9a-f]{40}$"))' <<<"$releases")"
+          fi
           echo "pending=$pending" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
           if [ "$pending" = "true" ]; then
+            echo "sha=$sha" >> "$GITHUB_OUTPUT"
             echo "::notice::v$version is still a draft; finish its verified publication before preparing another release PR."
           fi
       - name: Prepare release PR or create release
@@ -68,7 +76,12 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag_name }}
           RELEASE_SHA: ${{ steps.release.outputs.sha }}
           RELEASE_RUN_ID: ${{ github.run_id }}
+          EXPECTED_RELEASE_SHA: ${{ inputs.release_sha }}
         run: |
+          if [ -n "$EXPECTED_RELEASE_SHA" ] && [ "$RELEASE_SHA" != "$EXPECTED_RELEASE_SHA" ]; then
+            echo "::error::Prepared draft does not match the merged release commit."
+            exit 1
+          fi
           jq -n \
             --arg event_type release-prepared \
             --arg tag "$RELEASE_TAG" \
@@ -90,12 +103,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.release-please.outputs.tag }}
+          RELEASE_SHA: ${{ needs.release-please.outputs.sha }}
         run: |
           if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Recovery requires a stable manifest release tag."
             exit 1
           fi
-          jq -n --arg tag "$RELEASE_TAG" \
-            '{ref: "main", inputs: {tag: $tag}}' |
+          jq -n --arg tag "$RELEASE_TAG" --arg sha "$RELEASE_SHA" \
+            '{ref: "main", inputs: {tag: $tag, source_sha: $sha}}' |
             gh api --method POST \
               "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/dispatches" --input -
