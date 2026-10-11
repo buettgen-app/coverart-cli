@@ -6,6 +6,7 @@ import base64
 import copy
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -1200,9 +1201,13 @@ def test_release_network_calls_and_jobs_have_hard_timeouts() -> None:
     assert "--connect-timeout 10 --max-time 15" in helper
     assert "--connect-timeout 10 --max-time 120" in upload
     assert workflow.count("timeout-minutes: 30") == 6
-    assert sleep_lines == ["sleep 5"]
+    assert sleep_lines == ["sleep 10"]
     sleep_seconds = int(sleep_lines[0].split()[1])
-    assert 3 * 12 * (15 + sleep_seconds) < 30 * 60
+    match = re.search(r"for attempt in \{1\.\.(\d+)\}", poll)
+    assert match is not None
+    attempts = int(match.group(1))
+    assert (attempts - 1) * sleep_seconds >= 120
+    assert 3 * attempts * (15 + sleep_seconds) < 30 * 60
 
 
 def test_actions_read_permission_is_validate_only() -> None:
@@ -1222,19 +1227,27 @@ def test_actions_read_permission_is_validate_only() -> None:
         ("000 503 200", "false false true", "success\n", "3", "2"),
         ("200 200", "false true", "success\n", "2", "1"),
         (
-            "503 503 503 503 503 503 503 503 503 503 503 503",
-            "false false false false false false false false false false false false",
+            " ".join(["503"] * 18),
+            " ".join(["false"] * 18),
             "failure\n",
-            "12",
-            "11",
+            "18",
+            "17",
         ),
         (
-            "200 200 200 200 200 200 200 200 200 200 200 200",
-            "false false false false false false false false false false false false",
+            " ".join(["200"] * 18),
+            " ".join(["false"] * 18),
             "failure\n",
-            "12",
-            "11",
+            "18",
+            "17",
         ),
+        (
+            " ".join(["404"] * 12 + ["200"]),
+            " ".join(["false"] * 12 + ["true"]),
+            "success\n",
+            "13",
+            "12",
+        ),
+        (" ".join(["200"] * 18), " ".join(["false"] * 17 + ["true"]), "success\n", "18", "17"),
     ],
 )
 def test_pypi_poll_retries_and_exhausts_exactly(

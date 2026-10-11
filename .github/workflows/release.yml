@@ -1285,13 +1285,15 @@ jobs:
             local predicate="$2"
             shift 2
             local attempt status
-            for attempt in {1..12}; do
+            # CDN visibility can lag a successful upload by more than a minute.
+            # Keep three lookups within the enclosing 30-minute job timeout.
+            for attempt in {1..18}; do
               status="$(pypi_http_status "$output" "$@")"
               if [ "$status" = "200" ] && "$predicate" "$output"; then
                 return 0
               fi
-              if [ "$attempt" -lt 12 ]; then
-                sleep 5
+              if [ "$attempt" -lt 18 ]; then
+                sleep 10
               fi
             done
             return 1
@@ -1382,13 +1384,15 @@ jobs:
             local predicate="$2"
             shift 2
             local attempt status
-            for attempt in {1..12}; do
+            # CDN visibility can lag a successful upload by more than a minute.
+            # Keep three lookups within the enclosing 30-minute job timeout.
+            for attempt in {1..18}; do
               status="$(pypi_http_status "$output" "$@")"
               if [ "$status" = "200" ] && "$predicate" "$output"; then
                 return 0
               fi
-              if [ "$attempt" -lt 12 ]; then
-                sleep 5
+              if [ "$attempt" -lt 18 ]; then
+                sleep 10
               fi
             done
             return 1
