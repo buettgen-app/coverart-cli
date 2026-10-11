@@ -677,7 +677,7 @@ def _embed_mp3(path, cover: bytes, mime: str, *, replace: bool) -> bool:
     except ID3NoHeaderError:
         tags = ID3()
     version = tags.version[1]
-    if version == 2:
+    if tags.version[0] == 1 or version == 2:
         tags.update_to_v23()
         version = 3
     pictures = [cast(Any, t) for t in tags.values() if isinstance(t, APIC)]
