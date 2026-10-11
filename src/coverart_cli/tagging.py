@@ -670,9 +670,16 @@ def embed_cover(
 
 def _embed_mp3(path, cover: bytes, mime: str, *, replace: bool) -> bool:
     try:
-        tags = ID3(path)
+        # Automatic translation followed by a forced v2.3 save loses v2.4
+        # multi-value fields and v2.3-only date frames. Preserve the loaded
+        # version and frame vocabulary when adding artwork.
+        tags = ID3(path, translate=False)
     except ID3NoHeaderError:
         tags = ID3()
+    version = tags.version[1]
+    if version == 2:
+        tags.update_to_v23()
+        version = 3
     pictures = [cast(Any, t) for t in tags.values() if isinstance(t, APIC)]
     if (
         any(_mime_matches(detect_image_mime(picture.data), picture.mime) for picture in pictures)
@@ -682,7 +689,7 @@ def _embed_mp3(path, cover: bytes, mime: str, *, replace: bool) -> bool:
     if replace or pictures:
         tags.delall("APIC")
     tags.add(APIC(encoding=3, mime=mime, type=3, desc="Cover", data=cover))
-    tags.save(path, v2_version=3)
+    tags.save(path, v2_version=version)
     return True
 
 
