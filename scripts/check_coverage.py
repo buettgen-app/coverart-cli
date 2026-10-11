@@ -34,12 +34,25 @@ def check_report(path: Path, profile: str) -> str:
     if data["meta"]["branch_coverage"] is not True:
         raise ValueError("branch measurement is required")
     files = data["files"]
-    names = {name.replace("\\", "/").split("coverart_cli/", 1)[-1] for name in files}
     required = COMMON_FILES if profile == "common" else {"_windows_filesystem.py"}
-    if missing := required - names:
+    names = []
+    for name in files:
+        normalized = name.replace("\\", "/")
+        prefix = PACKAGE_ROOT.parents[1].as_posix() + "/"
+        normalized = normalized.removeprefix(prefix)
+        if normalized.startswith("src/coverart_cli/"):
+            normalized = normalized.removeprefix("src/coverart_cli/")
+        elif not normalized.startswith("scripts/"):
+            raise ValueError(f"unexpected coverage path: {name}")
+        names.append(normalized)
+    if len(names) != len(set(names)):
+        raise ValueError("duplicate measured modules")
+    if missing := required - set(names):
         raise ValueError("unmeasured modules: " + ", ".join(sorted(missing)))
-    if profile == "windows" and names != required:
-        raise ValueError("Windows backend coverage must be measured independently")
+    if extra := set(names) - required:
+        raise ValueError("unexpected measured modules: " + ", ".join(sorted(extra)))
+    counts = ("covered_lines", "num_statements", "covered_branches", "num_branches")
+    totals = dict.fromkeys(counts, 0)
     for name, entry in files.items():
         # The scope must describe executed code, including its missed branches.
         module_lines, module_branches = percentages(entry["summary"])
@@ -47,7 +60,12 @@ def check_report(path: Path, profile: str) -> str:
             raise ValueError(f"excluded executable lines in {name}")
         if module_lines < 75 or module_branches < 50:
             raise ValueError(f"module below 75% lines / 50% branches: {name}")
-    lines, branches = percentages(data["totals"])
+        for key in counts:
+            totals[key] += entry["summary"][key]
+    percentages(data["totals"])
+    if any(data["totals"][key] != totals[key] for key in counts):
+        raise ValueError("coverage totals differ from measured modules")
+    lines, branches = percentages(totals)
     if not data["totals"]["num_statements"] or not data["totals"]["num_branches"]:
         raise ValueError("empty coverage report")
     minimum_lines, minimum_branches = POLICIES[profile]

@@ -147,8 +147,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--replace-smaller",
         action="store_true",
-        help="when an existing cover is smaller than the newly fetched one, "
-        "replace it (default: keep larger existing)",
+        help="allow covers below --min-bytes to be replaced even by a smaller downloaded "
+        "image (default: keep larger existing)",
     )
     p.add_argument(
         "--keep-larger-existing",

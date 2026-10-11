@@ -366,3 +366,44 @@ def test_response_rejects_infinite_timeout_and_closes_stream():
     with pytest.raises(ValueError, match="finite timeout"):
         _DeadlineResponse(cast(socket.socket, sock))
     assert stream.closed
+
+
+@pytest.mark.parametrize("code", [errno.EACCES, errno.ENOENT, errno.EMFILE, errno.ENFILE])
+def test_component_open_failure_preserves_reachable_albums(tmp_path, monkeypatch, code):
+    album = _make_album(tmp_path, "Artist", "Album", tracks=1)
+    blocked = tmp_path / "Unavailable"
+    blocked.mkdir()
+    real_open = core.fs.open
+
+    def guarded_open(path, flags, *args, **kwargs):
+        if str(path) == "Unavailable":
+            raise OSError(code, "injected component open failure")
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(core.fs, "open", guarded_open)
+    if code in {errno.EMFILE, errno.ENFILE}:
+        with pytest.raises(OSError) as caught:
+            core.find_album_dirs(tmp_path)
+        assert caught.value.errno == code
+    else:
+        assert core.find_album_dirs(tmp_path) == [album]
+        stats = core.run(core.RunOptions(root=tmp_path, providers=[FakeProvider()], workers=1))
+        assert stats.albums_total == 1 and stats.files_embedded == 1
+        assert (album / "cover.jpg").exists()
+        assert len(report.scan_library(tmp_path)) == 1
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX directory permissions")
+def test_unreadable_child_is_skipped_by_real_filesystem(tmp_path):
+    import os
+
+    if os.geteuid() == 0:
+        pytest.skip("root bypasses POSIX read permission")
+    album = _make_album(tmp_path, "Artist", "Album", tracks=1)
+    blocked = tmp_path / "Unavailable"
+    blocked.mkdir()
+    blocked.chmod(0)
+    try:
+        assert core.find_album_dirs(tmp_path) == [album]
+    finally:
+        blocked.chmod(0o700)

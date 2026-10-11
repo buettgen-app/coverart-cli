@@ -35,8 +35,9 @@ skipped, stale or timed-out runs stop publication; protection is never bypassed.
 If another change reaches `main`, its preparation run updates the release PR and
 starts a new attempt. Publication applies to releasable Conventional Commits;
 changes that do not require a new version do not force an empty release.
-After verified publication, preparation runs again to pick up releasable main
-commits that arrived while the previous draft blocked preparation. With no
+After successful cryptographic provenance verification, a separate job explicitly
+dispatches preparation on main to pick up releasable main
+commits that arrived while the previous draft blocked preparation. This dispatch does not depend on a token-generated publication `workflow_run` event. With no
 unreleased changes, this creates neither a PR nor another publication.
 
 After the merge, an explicit main-only preparation dispatch creates the mutable

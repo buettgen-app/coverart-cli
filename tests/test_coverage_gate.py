@@ -21,8 +21,13 @@ def sample_report(profile="common"):
     names = COMMON_FILES if profile == "common" else {"_windows_filesystem.py"}
     return {
         "meta": {"branch_coverage": True},
-        "totals": summary.copy(),
-        "files": {f"src/coverart_cli/{name}": {"summary": summary.copy()} for name in names},
+        "totals": {key: value * len(names) for key, value in summary.items()},
+        "files": {
+            (name if name.startswith("scripts/") else f"src/coverart_cli/{name}"): {
+                "summary": summary.copy()
+            }
+            for name in names
+        },
     }
 
 
@@ -96,7 +101,46 @@ def test_zero_branch_module_and_windows_path_separators(tmp_path):
     data = sample_report()
     summary = data["files"]["src/coverart_cli/errors.py"]["summary"]
     summary.update(covered_branches=0, num_branches=0)
+    for key in ("covered_branches", "num_branches"):
+        data["totals"][key] = sum(item["summary"][key] for item in data["files"].values())
     data["files"] = {name.replace("/", "\\"): value for name, value in data["files"].items()}
     path = tmp_path / "report.json"
     path.write_text(json.dumps(data), encoding="utf-8")
     assert main([str(path), "--profile", "common"]) == 0
+
+
+@pytest.mark.parametrize("extra", ["tests/test_cli.py", "src/coverart_cli/tests/helper.py"])
+def test_common_scope_rejects_unrelated_high_coverage(tmp_path, extra):
+    data = sample_report()
+    data["files"][extra] = {
+        "summary": {
+            "covered_lines": 10000,
+            "num_statements": 10000,
+            "covered_branches": 10000,
+            "num_branches": 10000,
+            "excluded_lines": 0,
+        }
+    }
+    for key in ("covered_lines", "num_statements", "covered_branches", "num_branches"):
+        data["totals"][key] += 10000
+    path = tmp_path / "report.json"
+    path.write_text(json.dumps(data))
+    assert main([str(path), "--profile", "common"]) == 1
+
+
+def test_aliases_cannot_measure_one_module_twice(tmp_path):
+    data = sample_report()
+    data["files"]["src\\coverart_cli\\cli.py"] = copy.deepcopy(
+        data["files"]["src/coverart_cli/cli.py"]
+    )
+    path = tmp_path / "report.json"
+    path.write_text(json.dumps(data))
+    assert main([str(path), "--profile", "common"]) == 1
+
+
+def test_report_totals_must_match_module_measurements(tmp_path):
+    data = sample_report()
+    data["totals"]["covered_lines"] += 1
+    path = tmp_path / "report.json"
+    path.write_text(json.dumps(data))
+    assert main([str(path), "--profile", "common"]) == 1

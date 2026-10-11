@@ -1451,3 +1451,18 @@ jobs:
               --provenance-file "$provenance" \
               "$asset_path"
           done
+
+  catch-up:
+    name: Prepare main changes after verified publication
+    needs: verify-provenance
+    if: github.repository == 'buettgen-app/coverart-cli' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch preparation after successful provenance verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run prepare-release.yml --repo buettgen-app/coverart-cli --ref main

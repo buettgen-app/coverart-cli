@@ -112,7 +112,9 @@ ancestor locks, and write conflicts through the final replacement.
 
 `scripts/check_coverage.py` rejects absent or malformed reports, disabled branch
 measurement, missing runtime modules, excluded executable lines and below-policy
-totals/modules. Newly added runtime modules are automatically required. The
+totals/modules. The common and Windows profiles accept only their exact module sets,
+reject aliases and foreign files, and require totals to match the module counts.
+Newly added runtime modules are automatically required. The
 `Coverage reports and gates` job requires all eight platform/interpreter reports
 and summarizes them; `CI gate` depends on it. Tagged Linux release tests apply the
 same shared-code policy.
