@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from mutagen.id3 import APIC, ID3
+from mutagen.id3 import APIC, ID3, TDAT, TPE1, TYER
 from mutagen.mp4 import MP4, MP4Cover
 
 from coverart_cli import tagging
@@ -37,6 +37,55 @@ write_sidecar = tagging.write_sidecar
 def test_album_meta_str() -> None:
     m = AlbumMeta(artist="Pink Floyd", album="The Wall")
     assert str(m) == "Pink Floyd / The Wall"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="secure audio replacement requires dirfds")
+@pytest.mark.parametrize("version", [3, 4])
+def test_embed_preserves_id3_version_and_artist_values(tmp_path: Path, version: int) -> None:
+    path = tmp_path / "track.mp3"
+    tags = ID3()
+    tags.add(TPE1(encoding=3, text=["Artist A", "Artist B"]))
+    tags.save(path, v2_version=version)
+    before = ID3(path, translate=False)
+    assert embed_cover(path, VALID_JPEG)
+    after = ID3(path, translate=False)
+    assert after.version == before.version
+    assert list(after["TPE1"].text) == list(before["TPE1"].text)
+    assert after.getall("APIC")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="secure audio replacement requires dirfds")
+def test_embed_preserves_legacy_id3v23_date_frames(tmp_path: Path) -> None:
+    path = tmp_path / "track.mp3"
+    tags = ID3()
+    tags.add(TYER(encoding=0, text=["1999"]))
+    tags.add(TDAT(encoding=0, text=["2412"]))
+    tags.save(path, v2_version=3)
+    assert embed_cover(path, VALID_JPEG)
+    after = ID3(path, translate=False)
+    assert str(after["TYER"]) == "1999"
+    assert str(after["TDAT"]) == "2412"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="secure audio replacement requires dirfds")
+def test_embed_upgrades_id3v22_without_losing_artist(tmp_path: Path) -> None:
+    path = tmp_path / "track.mp3"
+    payload = b"\x00Legacy Artist"
+    frame = b"TP1" + len(payload).to_bytes(3, "big") + payload
+    path.write_bytes(b"ID3\x02\x00\x00" + bytes([0, 0, 0, len(frame)]) + frame)
+    assert ID3(path).version == (2, 2, 0)
+    assert embed_cover(path, VALID_JPEG)
+    after = ID3(path, translate=False)
+    assert after.version == (2, 3, 0)
+    assert str(after["TPE1"]) == "Legacy Artist"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="secure audio replacement requires dirfds")
+def test_embed_creates_id3v24_when_no_tag_exists(tmp_path: Path) -> None:
+    path = tmp_path / "track.mp3"
+    path.write_bytes(b"\xff\xfb\x90\x00" + b"\x00" * 1000)
+    assert embed_cover(path, VALID_JPEG)
+    assert ID3(path).version == (2, 4, 0)
 
 
 @pytest.mark.parametrize(
