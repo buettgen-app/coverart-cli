@@ -114,6 +114,9 @@ ancestor locks, and write conflicts through the final replacement.
 measurement, missing runtime modules, excluded executable lines and below-policy
 totals/modules. The common and Windows profiles accept only their exact module sets,
 reject aliases and foreign files, and require totals to match the module counts.
+The gate computes combined coverage directly from those counts and enforces it
+even when invoked independently of pytest. It uses the number of statements and
+branches as weights, rather than averaging the line and branch percentages.
 Newly added runtime modules are automatically required. The
 `Coverage reports and gates` job requires all eight platform/interpreter reports
 and summarizes them; `CI gate` depends on it. Tagged Linux release tests apply the
