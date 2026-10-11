@@ -82,11 +82,17 @@ def test_publication_source_is_bound_to_release_ancestry(mutation, accepted, tmp
 
 
 @pytest.mark.parametrize(
-    "source,expected",
-    [(RELEASE_SHA, RELEASE_SHA), ("", BOUND_SHA), (BOUND_SHA, None), ("invalid", None)],
+    "source,expected,trusted",
+    [
+        (RELEASE_SHA, RELEASE_SHA, True),
+        ("", BOUND_SHA, True),
+        (BOUND_SHA, None, True),
+        ("invalid", None, True),
+        (RELEASE_SHA, None, False),
+    ],
 )
 def test_automatic_draft_recovery_uses_its_bound_source_after_main_advances(
-    source, expected, tmp_path
+    source, expected, trusted, tmp_path
 ):
     release = {
         "id": 42,
@@ -100,6 +106,7 @@ def test_automatic_draft_recovery_uses_its_bound_source_after_main_advances(
     mock = """gh() {
       case "$*" in
         *git/matching-refs/*) printf '[]' ;;
+        *commits/*/pulls*) printf '%s' "$TEST_RELEASE_PRS" ;;
         *releases*) printf '%s' "$TEST_RELEASES" ;;
         *) return 64 ;;
       esac
@@ -117,6 +124,22 @@ def test_automatic_draft_recovery_uses_its_bound_source_after_main_advances(
             "RECOVERY_SOURCE_SHA": source,
             "GITHUB_OUTPUT": str(output),
             "TEST_RELEASES": json.dumps([release]),
+            "TEST_RELEASE_PRS": json.dumps(
+                [
+                    {
+                        "merged_at": "2026-10-11T18:00:00Z",
+                        "merge_commit_sha": RELEASE_SHA if trusted else BOUND_SHA,
+                        "title": f"chore(main): release {RELEASE_TAG[1:]}",
+                        "user": {"login": "github-actions[bot]"},
+                        "base": {"ref": "main"},
+                        "head": {
+                            "ref": "release-please--branches--main--components--coverart-cli",
+                            "repo": {"full_name": "buettgen-app/coverart-cli"},
+                        },
+                    }
+                ]
+            ),
+            "RELEASE_COMMIT_JQ": _folded_env_value("RELEASE_COMMIT_JQ"),
             "RELEASE_LOOKUP_JQ": _folded_env_value("RELEASE_LOOKUP_JQ"),
             "EXACT_TAG_JQ": _folded_env_value("EXACT_TAG_JQ"),
         },
@@ -129,8 +152,8 @@ def test_automatic_draft_recovery_uses_its_bound_source_after_main_advances(
         assert f"ref={expected}\n" in output.read_text()
 
 
-def _folded_env_value(name: str) -> str:
-    lines = RELEASE_WORKFLOW.read_text(encoding="utf-8").splitlines()
+def _folded_env_value(name: str, workflow: Path = RELEASE_WORKFLOW) -> str:
+    lines = workflow.read_text(encoding="utf-8").splitlines()
     marker = f"  {name}: >-"
     start = lines.index(marker) + 1
     program: list[str] = []
@@ -140,6 +163,72 @@ def _folded_env_value(name: str) -> str:
         program.append(line.strip())
     assert program
     return " ".join(program)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        None,
+        "sha",
+        "version",
+        "actor",
+        "base",
+        "branch",
+        "repository",
+        "unmerged",
+        "duplicate",
+        "missing",
+    ],
+)
+def test_recovery_contract_accepts_only_the_original_merged_release_pr(mutation):
+    pr = {
+        "merged_at": "2026-10-11T18:00:00Z",
+        "merge_commit_sha": RELEASE_SHA,
+        "title": f"chore(main): release {RELEASE_TAG[1:]}",
+        "user": {"login": "github-actions[bot]"},
+        "base": {"ref": "main"},
+        "head": {
+            "ref": "release-please--branches--main--components--coverart-cli",
+            "repo": {"full_name": "buettgen-app/coverart-cli"},
+        },
+    }
+    if mutation == "sha":
+        pr["merge_commit_sha"] = BOUND_SHA
+    elif mutation == "version":
+        pr["title"] = "chore(main): release 9.0.0"
+    elif mutation == "actor":
+        pr["user"]["login"] = "other"
+    elif mutation == "base":
+        pr["base"]["ref"] = "other"
+    elif mutation == "branch":
+        pr["head"]["ref"] = "other"
+    elif mutation == "repository":
+        pr["head"]["repo"]["full_name"] = "other/repo"
+    elif mutation == "unmerged":
+        pr["merged_at"] = None
+    records = [] if mutation == "missing" else [pr, pr] if mutation == "duplicate" else [pr]
+    for workflow in (RELEASE_WORKFLOW, RELEASE_WORKFLOW.parent / "prepare-release.yml"):
+        result = subprocess.run(
+            [
+                "jq",
+                "-se",
+                "--arg",
+                "sha",
+                RELEASE_SHA,
+                "--arg",
+                "version",
+                RELEASE_TAG[1:],
+                "--arg",
+                "repository",
+                "buettgen-app/coverart-cli",
+                _folded_env_value("RELEASE_COMMIT_JQ", workflow),
+            ],
+            input=json.dumps(records),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert (result.returncode == 0) is (mutation is None)
 
 
 def _run_release_lookup(

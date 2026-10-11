@@ -54,7 +54,10 @@ For recovery, run `Complete automatic release` manually from `main` if the
 release PR is still open. If it was already merged but publication did not start,
 run `Prepare release` from `main` with `publish_only` enabled and `release_sha`
 set to its merge commit. Automatic draft recovery passes the draft's exact
-`source_sha`, so later product commits do not alter the version being published. For an existing
+`source_sha`, so later product commits do not alter the version being published.
+Both preparation and the publisher verify automatic draft recovery against the
+merged Release Please PR's version, author, branch, repository and actual merge
+SHA. A rejected or mismatched draft fails closed on subsequent attempts too. For an existing
 draft or immutable version, use `Publish release` with its tag as described below.
 
 The normal release writes use only the repository-scoped `GITHUB_TOKEN`.

@@ -23,6 +23,15 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  RELEASE_COMMIT_JQ: >-
+    [.[][] | select(.merged_at != null and
+      .merge_commit_sha == $sha and
+      .title == ("chore(main): release " + $version) and
+      .user.login == "github-actions[bot]" and
+      .base.ref == "main" and
+      .head.ref == "release-please--branches--main--components--coverart-cli" and
+      .head.repo.full_name == $repository)] |
+    length == 1
   RELEASE_TAG: ${{ github.event.client_payload.tag || github.event.inputs.tag }}
   RELEASE_SHA: ${{ github.event.client_payload.sha || '' }}
   RELEASE_RUN_ID: ${{ github.event.client_payload.run_id || '' }}
@@ -303,6 +312,17 @@ jobs:
               echo "::error::Draft recovery requires a mutable release targeting a full commit SHA."
               exit 1
             fi
+            if [ -n "$RECOVERY_SOURCE_SHA" ]; then
+              if [[ ! "$RECOVERY_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || [ "$RECOVERY_SOURCE_SHA" != "$target_commitish" ]; then
+                echo "::error::Automatic recovery must use the exact existing draft source."
+                exit 1
+              fi
+              release_prs="$(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$RECOVERY_SOURCE_SHA/pulls?per_page=100")"
+              if ! jq -se --arg sha "$RECOVERY_SOURCE_SHA" --arg version "${RELEASE_TAG#v}" --arg repository "$GITHUB_REPOSITORY" "$RELEASE_COMMIT_JQ" <<<"$release_prs" >/dev/null; then
+                echo "::error::Automatic recovery requires the actual merged Release Please commit."
+                exit 1
+              fi
+            fi
             if [ -n "$tag_sha" ]; then
               if [ "$tag_sha" != "$target_commitish" ]; then
                 echo "::error::Existing annotated tag and mutable draft target differ."
@@ -310,10 +330,6 @@ jobs:
               fi
               release_ref="$tag_sha"
             elif [ -n "$RECOVERY_SOURCE_SHA" ]; then
-              if [[ ! "$RECOVERY_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || [ "$RECOVERY_SOURCE_SHA" != "$target_commitish" ]; then
-                echo "::error::Automatic recovery must use the exact existing draft source."
-                exit 1
-              fi
               release_ref="$RECOVERY_SOURCE_SHA"
             elif [[ ! "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]; then
               echo "::error::Manual recovery is not bound to a full main commit SHA."
