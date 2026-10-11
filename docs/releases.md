@@ -55,6 +55,10 @@ release PR is still open. If it was already merged but publication did not start
 run `Prepare release` from `main` with `publish_only` enabled and `release_sha`
 set to its merge commit. Automatic draft recovery passes the draft's exact
 `source_sha`, so later product commits do not alter the version being published.
+Release tests install the same FFmpeg oracle as Linux CI so audio integration
+coverage cannot disappear in the publication environment. A reviewed change to
+`release.yml` on protected main may repair the publisher while retaining the
+exact draft source; other workflow differences still stop this recovery.
 Both preparation and the publisher verify automatic draft recovery against the
 merged Release Please PR's version, author, branch, repository and actual merge
 SHA. A rejected or mismatched draft fails closed on subsequent attempts too. For an existing
