@@ -92,6 +92,12 @@ path: the workflow accepts only the exact mutable draft or immutable release,
 rebuilds wheel and sdist deterministically from the bound source and requires
 their SHA-256 values to match any immutable GitHub assets, uploads only missing
 PyPI files, and verifies provenance. The same workflow can be run manually
+from a failed publication's Actions page using **Re-run failed jobs** once a
+temporary visibility failure has cleared; matching existing files are retained
+and no second upload is attempted. File and attestation lookups each allow up to
+18 attempts spaced ten seconds apart to tolerate delayed CDN visibility, with
+15-second request timeouts and an enclosing 30-minute job limit. Exhaustion or
+mismatched provenance remains a failure. Alternatively, run the same workflow
 from `main` for a named draft or a published version that already satisfies
 the protected annotated-tag contract; recovery refuses product changes beyond
 the explicit release repair. Pull requests and Release PRs
