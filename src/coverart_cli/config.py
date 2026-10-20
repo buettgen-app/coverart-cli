@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Optional TOML config file for default CLI values.
 
 Resolution order (later wins):

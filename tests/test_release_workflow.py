@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Regression tests for the release workflow's trust boundaries."""
 
 from __future__ import annotations

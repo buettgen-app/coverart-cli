@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Exercise draft gating through the actual prepare-workflow shell script."""
 
 from __future__ import annotations

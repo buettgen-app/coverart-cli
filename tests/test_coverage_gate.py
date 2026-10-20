@@ -1,3 +1,5 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
 """Regression tests for missing measurements and unsafe coverage acceptance."""
 
 from __future__ import annotations
@@ -61,7 +63,7 @@ def test_high_combined_score_cannot_hide_low_line_or_branch_coverage(tmp_path, p
     failing = {
         ("common", "covered_lines"): 89,
         ("windows", "covered_lines"): 84,
-        ("common", "covered_branches"): 77,
+        ("common", "covered_branches"): 79,
         ("windows", "covered_branches"): 67,
     }
     for entry in data["files"].values():
@@ -156,7 +158,7 @@ def test_report_totals_must_match_module_measurements(tmp_path):
     assert main([str(path), "--profile", "common"]) == 1
 
 
-@pytest.mark.parametrize("profile,lines,branches", [("common", 90, 78), ("windows", 85, 68)])
+@pytest.mark.parametrize("profile,lines,branches", [("common", 90, 80), ("windows", 85, 68)])
 def test_independent_minima_cannot_hide_low_combined_coverage(tmp_path, profile, lines, branches):
     data = sample_report(profile)
     for entry in data["files"].values():
@@ -169,7 +171,7 @@ def test_independent_minima_cannot_hide_low_combined_coverage(tmp_path, profile,
         check_report(path, profile)
 
 
-@pytest.mark.parametrize("profile,lines,branches", [("common", 96, 78), ("windows", 92, 68)])
+@pytest.mark.parametrize("profile,lines,branches", [("common", 94, 80), ("windows", 92, 68)])
 @pytest.mark.parametrize("branch_weight", [1, 3])
 def test_combined_policy_uses_weighted_counts_and_accepts_exact_floor(
     tmp_path, profile, lines, branches, branch_weight

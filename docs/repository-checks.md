@@ -28,6 +28,17 @@ address from your account's email settings. Historical identity changes require
 a separately coordinated history rewrite, including branches, tags, clones and
 forks; ordinary PRs leave that history intact.
 
+## Source notices
+
+The same index-based hygiene check requires copyright and MIT SPDX notices in
+the leading comments of tracked Python (`.py` and `.pyi`) and HTML source files.
+The HTML template's notice also covers its embedded JavaScript and CSS. Existing
+attribution is preserved; passing this check does not independently establish
+ownership. It rejects malformed source encodings and missing notices, including
+on newly added source files. Adding a source language or third-party material
+requires reviewing the inventory and its actual license instead of relabeling
+it as MIT to satisfy the check.
+
 ## Merge gates
 
 `CI gate` succeeds only if every job in `ci.yml` succeeds, including all five
@@ -93,7 +104,7 @@ real-world desktop compatibility.
 
 | Scope | Line minimum | Branch minimum | Combined minimum |
 | --- | ---: | ---: | ---: |
-| Shared runtime and repository scripts, Linux/macOS | 90% | 78% | 87% |
+| Shared runtime and repository scripts, Linux/macOS | 90% | 80% | 87% |
 | Native Windows filesystem backend | 85% | 68% | 80% |
 
 Every measured module also needs at least 75% lines and 50% branches. The native
@@ -127,3 +138,8 @@ named `coverage-*` artifact, retained for seven days. Open `html/index.html` to
 inspect missed statements and branch outcomes. These reports contain repository
 source, not users' music libraries. Failed test runs upload any reports they
 produced for diagnosis; missing output never counts as passing.
+
+The [coverage evidence guide](coverage-evidence.md) explains how to evaluate
+OpenSSF's separate coverage criteria, including platform deduplication and the
+browser JavaScript scope. The Windows baseline and Python-only measurements do
+not establish complete Gold coverage.

@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Atheris target for report escaping and URL log redaction boundaries."""
 
 from __future__ import annotations

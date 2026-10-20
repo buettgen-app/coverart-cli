@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Hostile network responses and operational failures at public boundaries."""
 
 from __future__ import annotations

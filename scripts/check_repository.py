@@ -1,7 +1,12 @@
-"""Check tracked files for private contact details, local artifacts and PNG metadata.
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
+"""Check tracked files for privacy, local artifacts and source license notices.
 
 This is a deliberately narrow PII guard, not a replacement for Gitleaks or review.
 Diagnostics identify locations and categories without echoing matched values.
+Source notices cover Python (including stubs) and HTML with embedded CSS/JavaScript.
+New source languages or third-party licenses require an explicit inventory review.
 """
 
 from __future__ import annotations
@@ -29,6 +34,32 @@ GENERATED_DIRS = {
     "dist",
 }
 PNG_METADATA = {b"eXIf", b"tEXt", b"zTXt", b"iTXt"}
+SOURCE_SUFFIXES = {".py", ".pyi", ".html"}
+COPYRIGHT_NOTICE = re.compile(r"Copyright \(c\) \d{4}(?:-\d{4})? \S.*")
+
+
+def check_source_notices(path: Path, text: str) -> list[str]:
+    """Require actual header comments, not matching strings in executable code."""
+    if path.suffix not in SOURCE_SUFFIXES:
+        return []
+    lines = []
+    if path.suffix in {".py", ".pyi"}:
+        for line in text.splitlines()[:20]:
+            if not line.strip():
+                continue
+            if not line.startswith("#"):
+                break
+            lines.append(line[1:].strip())
+    else:
+        header = re.match(r"\s*(?:<!doctype html>\s*)?<!--(.*?)-->", text, re.I | re.S)
+        if header:
+            lines = [line.strip() for line in header.group(1).splitlines()[:20]]
+    findings = []
+    if not any(COPYRIGHT_NOTICE.fullmatch(line) for line in lines):
+        findings.append(f"{path}: missing source-header copyright notice")
+    if "SPDX-License-Identifier: MIT" not in lines:
+        findings.append(f"{path}: missing or unreviewed source-header SPDX license")
+    return findings
 
 
 def check_file(path: Path, data: bytes) -> list[str]:
@@ -42,6 +73,8 @@ def check_file(path: Path, data: bytes) -> list[str]:
     ):
         findings.append(f"{path}: local/generated or sensitive file is tracked")
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        if path.suffix in SOURCE_SUFFIXES:
+            findings.append(f"{path}: source file contains PNG data")
         position = 8
         while position + 12 <= len(data):
             size = int.from_bytes(data[position : position + 4], "big")
@@ -58,7 +91,10 @@ def check_file(path: Path, data: bytes) -> list[str]:
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
+        if path.suffix in SOURCE_SUFFIXES:
+            findings.append(f"{path}: source file is not valid UTF-8")
         return findings
+    findings.extend(check_source_notices(path, text))
     for number, line in enumerate(text.splitlines(), 1):
         for match in EMAIL.finditer(line):
             domain = match.group(1).lower()

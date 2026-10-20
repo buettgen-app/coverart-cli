@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Complete a metadata-only Release Please PR using normal protected merges."""
 
 from __future__ import annotations

@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """End-to-end integration tests using a deterministic mock provider.
 
 These verify the full pipeline works:

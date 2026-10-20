@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]

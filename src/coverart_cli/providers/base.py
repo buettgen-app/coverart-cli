@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Provider interface — fetch cover art for a given artist + album."""
 
 from __future__ import annotations

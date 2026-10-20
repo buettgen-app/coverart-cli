@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Exercise automatic release boundaries without dispatching or publishing."""
 
 from __future__ import annotations

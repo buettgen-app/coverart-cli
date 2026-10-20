@@ -1,3 +1,5 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
 """Fail closed on absent, incomplete or below-policy branch coverage reports."""
 
 from __future__ import annotations
@@ -6,7 +8,7 @@ import argparse
 import json
 from pathlib import Path
 
-POLICIES = {"common": (90.0, 78.0, 87.0), "windows": (85.0, 68.0, 80.0)}
+POLICIES = {"common": (90.0, 80.0, 87.0), "windows": (85.0, 68.0, 80.0)}
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src" / "coverart_cli"
 COMMON_FILES = {
     path.relative_to(PACKAGE_ROOT).as_posix()

@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Cross-file contracts needed for Renovate to regenerate the canonical locks."""
 
 from __future__ import annotations
