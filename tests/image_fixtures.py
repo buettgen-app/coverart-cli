@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Small deterministic, fully decodable images used by tests."""
 
 from __future__ import annotations

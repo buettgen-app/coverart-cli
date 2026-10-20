@@ -1,3 +1,5 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
 """Native Windows end-to-end and handle boundary regression tests."""
 
 from __future__ import annotations

@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Reading album metadata from audio tags and embedding cover art back."""
 
 from __future__ import annotations

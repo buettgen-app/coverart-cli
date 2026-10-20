@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Provider-level smoke tests (no network)."""
 
 from __future__ import annotations

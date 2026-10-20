@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Shared filesystem behavior at a disappearing-entry boundary."""
 
 from __future__ import annotations

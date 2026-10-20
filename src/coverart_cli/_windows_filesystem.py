@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Windows-only implementation; imported lazily by filesystem.py.
 
 Directory handles deny delete sharing, retaining ancestor locks for

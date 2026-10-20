@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """MusicBrainz + Cover Art Archive provider."""
 
 from __future__ import annotations

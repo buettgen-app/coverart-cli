@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Cover art providers — Last.fm, iTunes, Deezer, MusicBrainz / Cover Art Archive."""
 
 from coverart_cli.providers.base import CoverProvider, ProviderResult

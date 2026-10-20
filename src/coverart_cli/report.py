@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Generate a self-contained HTML report of a music library's cover coverage."""
 
 from __future__ import annotations

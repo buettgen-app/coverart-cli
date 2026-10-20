@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Offline checks for demo generation's network and thumbnail budgets."""
 
 from __future__ import annotations

@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """coverart-cli — fetch missing album covers from Last.fm / iTunes / Deezer / MusicBrainz
 and embed them into MP3 / M4A / FLAC / Ogg files (plus a cover.jpg sidecar).
 

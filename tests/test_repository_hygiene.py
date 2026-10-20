@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Regression checks for redacted repository privacy diagnostics."""
 
 import subprocess
@@ -41,6 +44,89 @@ def test_generated_and_environment_files_are_rejected() -> None:
     ]:
         assert check_file(Path(filename), b"")
     assert check_file(Path(".env.example"), b"CONTACT=you@example.com") == []
+
+
+@pytest.mark.parametrize("suffix", [".py", ".pyi"])
+def test_source_notices_allow_python_headers_and_empty_modules(suffix) -> None:
+    header = (
+        "#!/usr/bin/env python3\n"
+        "# coding: utf-8\n"
+        "# Copyright (c) 2026 WildDragonKing\n"
+        "# SPDX-License-Identifier: MIT\n\n"
+    )
+    assert check_file(Path("module" + suffix), header.encode()) == []
+    assert check_file(Path("module" + suffix), (header + '"""Module docs."""\n').encode()) == []
+
+
+@pytest.mark.parametrize("doctype", ["", "<!doctype html>\n", "<!DOCTYPE HTML>\n"])
+def test_html_template_notice_covers_embedded_source(doctype) -> None:
+    source = (
+        doctype
+        + "<!--\nCopyright (c) 2026 WildDragonKing\nSPDX-License-Identifier: MIT\n-->\n"
+        + "<html><script>const enabled = true;</script></html>\n"
+    )
+    assert check_file(Path("template.html"), source.encode()) == []
+
+
+@pytest.mark.parametrize(
+    ("path", "source", "missing"),
+    [
+        ("empty.py", "", 2),
+        ("module.py", "# Copyright (c) 2026 WildDragonKing\n", 1),
+        ("module.py", "# SPDX-License-Identifier: MIT\n", 1),
+        (
+            "module.py",
+            "# Copyright (c) 2026 WildDragonKing\n# SPDX-License-Identifier: Other\n",
+            1,
+        ),
+        (
+            "module.py",
+            '"""\n# Copyright (c) 2026 WildDragonKing\n# SPDX-License-Identifier: MIT\n"""\n',
+            2,
+        ),
+        (
+            "template.html",
+            "<html><body>Copyright (c) 2026 WildDragonKing\n"
+            "SPDX-License-Identifier: MIT</body></html>",
+            2,
+        ),
+        (
+            "module.py",
+            "# Copyright (c) 2026\n# SPDX-License-Identifier: MIT\n",
+            1,
+        ),
+    ],
+)
+def test_source_notices_fail_missing_unreviewed_or_noncomment_notices(
+    path, source, missing
+) -> None:
+    findings = check_file(Path(path), source.encode())
+    assert len(findings) == missing
+    assert all("source-header" in finding for finding in findings)
+
+
+def test_invalid_source_encoding_cannot_skip_notice_check() -> None:
+    assert check_file(Path("module.py"), b"\xff") == ["module.py: source file is not valid UTF-8"]
+    assert check_file(Path("binary.dat"), b"\xff") == []
+    assert check_file(Path("module.py"), b"\x89PNG\r\n\x1a\n") == [
+        "module.py: source file contains PNG data"
+    ]
+
+
+def test_license_check_uses_the_staged_source(tmp_path, monkeypatch, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    subprocess.run(["git", "init", "--quiet"], check=True)
+    path = tmp_path / "new_module.py"
+    path.write_text("value = 1\n")
+    subprocess.run(["git", "add", "new_module.py"], check=True)
+    path.write_text(
+        "# Copyright (c) 2026 WildDragonKing\n# SPDX-License-Identifier: MIT\nvalue = 1\n"
+    )
+    assert main() == 1
+    assert "missing source-header copyright" in capsys.readouterr().out
+    subprocess.run(["git", "add", "new_module.py"], check=True)
+    path.write_text("value = 1\n")
+    assert main() == 0
 
 
 @pytest.mark.parametrize("prefix", ["c:\\users\\", "C:\\USERS\\", "C:\\Users\\"])

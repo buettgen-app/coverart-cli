@@ -20,7 +20,7 @@ artwork is reused where possible.
 
 [Quick start](#quick-start) · [Workflows](#common-workflows) ·
 [Configuration](#configuration) · [Reports](#html-report) ·
-[Development](#development) · [Changelog](CHANGELOG.md)
+[Development](#development) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
 
 ## Install
 
@@ -42,6 +42,7 @@ coverart --version
 ```
 
 Upgrade with `pipx upgrade coverart-cli` or `uv tool upgrade coverart-cli`.
+Uninstall with `pipx uninstall coverart-cli` or `uv tool uninstall coverart-cli`.
 PyPI contains the latest published release; this README also documents repository
 changes that may be awaiting release.
 
@@ -52,9 +53,7 @@ Install Python 3.15 (recommended; 3.11+ supported) and pipx, then open a new Pow
 ```powershell
 py -m pip install --user pipx
 py -m pipx ensurepath
-# Until the next PyPI release, install the Windows implementation from main
-# (requires Git for Windows):
-pipx install "git+https://github.com/buettgen-app/coverart-cli.git@main"
+pipx install coverart-cli
 coverart --version
 coverart "$env:USERPROFILE\Music" --dry-run -v
 coverart "$env:USERPROFILE\Music"
@@ -270,6 +269,11 @@ print(stats.fetched_from, stats.not_found, stats.errors)
 
 ## Development
 
+Read the [contribution guide](CONTRIBUTING.md) for the pull-request process,
+coding style, test policy and review requirements. The
+[architecture](docs/architecture.md) describes component boundaries; the
+[roadmap](docs/roadmap.md) sets the direction through October 2027.
+
 Dependency updates are configured through [Renovate](docs/dependency-updates.md),
 including Python hash locks, GitHub Actions and pre-commit hooks.
 
@@ -303,7 +307,7 @@ Test coverage measures executed code, separately from the report's album-art
 coverage. **Line coverage** counts executed statements; **branch coverage** checks
 both outcomes of decisions, including failures and rejected inputs. Neither proves
 that a test asserts the right behavior or that the program has no vulnerabilities.
-CI requires at least 90% lines and 78% branches for shared code, with a separate
+CI requires at least 90% lines and 80% branches for shared code, with a separate
 native Windows measurement. Download `coverage-*` artifacts from a CI run and open
 `html/index.html` to see missed lines and branches. See the
 [coverage policy](docs/repository-checks.md#test-coverage) for scopes and gates.

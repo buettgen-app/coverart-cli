@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Tests for the TOML config file loader."""
 
 from __future__ import annotations

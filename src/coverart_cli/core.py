@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Core workflow — iterate an album library, fetch + embed/sidecar cover art."""
 
 from __future__ import annotations

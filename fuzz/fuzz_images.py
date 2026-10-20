@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Atheris target for untrusted JPEG/PNG container validation."""
 
 from __future__ import annotations

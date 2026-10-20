@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Apple Music / iTunes Search API provider — no key required."""
 
 from __future__ import annotations

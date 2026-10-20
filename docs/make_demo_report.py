@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """Generate a demo HTML report with well-known album examples — used for screenshots."""
 
 from __future__ import annotations

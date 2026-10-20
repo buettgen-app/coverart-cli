@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WildDragonKing
+# SPDX-License-Identifier: MIT
+
 """No-follow filesystem operations, with a native Windows handle backend.
 
 POSIX uses directory-relative descriptors. Windows pins every directory in the
