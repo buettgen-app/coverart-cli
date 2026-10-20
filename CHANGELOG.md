@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.4](https://github.com/buettgen-app/coverart-cli/compare/v0.7.3...v0.7.4) (2026-10-20)
+
+
+### Documentation
+
+* establish OpenSSF evidence and quality foundations ([cad18f6](https://github.com/buettgen-app/coverart-cli/commit/cad18f6e6888a5052addfa6cf9ceccf0b5ed21c6))
+
 ## [0.7.3](https://github.com/buettgen-app/coverart-cli/compare/v0.7.2...v0.7.3) (2026-10-11)
 
 
