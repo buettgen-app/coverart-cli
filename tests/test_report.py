@@ -66,9 +66,10 @@ def test_make_data_uri_uses_content_type_not_extension(tmp_path: Path) -> None:
     assert uri.startswith("data:image/png;base64,")
 
 
-def test_make_data_uri_downsamples_large_cover(tmp_path: Path) -> None:
+@pytest.mark.parametrize("size", [(1024, 768), (4096, 3072)])
+def test_make_data_uri_downsamples_large_cover(tmp_path: Path, size: tuple[int, int]) -> None:
     path = tmp_path / "cover.jpg"
-    Image.new("RGB", (1024, 768), "navy").save(path, format="JPEG", quality=90)
+    Image.new("RGB", size, "navy").save(path, format="JPEG", quality=90)
 
     uri = _make_data_uri(path)
 

@@ -31,7 +31,7 @@ classifiers = [
 ]
 dependencies = [
     "mutagen>=1.48.1",
-    "pillow>=12.3.0",
+    "pillow>=13.0.0",
 ]
 
 [project.optional-dependencies]
