@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.5](https://github.com/buettgen-app/coverart-cli/compare/v0.7.4...v0.7.5) (2026-10-23)
+
+
+### Bug Fixes
+
+* **deps:** require Pillow 13 security fixes ([73753e7](https://github.com/buettgen-app/coverart-cli/commit/73753e7617da8a2547ab7325296c02c8c6983555))
+
 ## [0.7.4](https://github.com/buettgen-app/coverart-cli/compare/v0.7.3...v0.7.4) (2026-10-20)
 
 
