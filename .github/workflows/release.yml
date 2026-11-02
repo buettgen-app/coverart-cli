@@ -424,7 +424,7 @@ jobs:
             echo "::error::Release source uses non-publication workflows that differ from current main."
             exit 1
           fi
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           check-latest: true
           python-version: "3.15"
@@ -475,7 +475,7 @@ jobs:
         with:
           ref: ${{ needs.validate.outputs.release_ref }}
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           check-latest: true
           python-version: ${{ matrix.python-version }}
@@ -506,7 +506,7 @@ jobs:
         with:
           ref: ${{ needs.validate.outputs.release_ref }}
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           check-latest: true
           python-version: "3.15"
@@ -1258,7 +1258,7 @@ jobs:
           fi
       - name: Publish missing distributions to PyPI
         if: steps.pypi.outputs.upload == 'true'
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
           packages-dir: pypi-dist/
           attestations: true
@@ -1353,7 +1353,7 @@ jobs:
         with:
           name: dist-${{ env.RELEASE_TAG }}
           path: dist/
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           check-latest: true
           python-version: "3.15"
